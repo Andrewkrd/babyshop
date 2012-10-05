@@ -209,7 +209,11 @@ class VirtueMartViewProductdetails extends VmView {
 	if ($product->customtitle) {
 	    $document->setTitle(strip_tags($product->customtitle));
 	} else {
-	    $document->setTitle(strip_tags(($category->category_name ? ($category->category_name . ' : ') : '') . $product->product_name));
+            // Andrew меняем title только если это не аксессуары
+            if($category->virtuemart_category_id == 19 || $category->virtuemart_category_id == 18)
+                $document->setTitle(strip_tags(($category->category_name ? ($category->category_name . ' - ') : '') . $product->product_name . " - Краснодар интернет-магазин автокресел Babyshop"));
+            else
+                $document->setTitle( "Детское автокресло " . $product->product_name . " - Краснодар интернет-магазин автокресел Babyshop" );
 	}
 	$ratingModel = VmModel::getModel('ratings');
 	$allowReview = $ratingModel->allowReview($product->virtuemart_product_id);
