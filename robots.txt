@@ -14,3 +14,4 @@ Disallow: /modules/
 Disallow: /plugins/
 Disallow: /templates/
 Disallow: /tmp/
+Sitemap: http://babyshop-kuban.ru/sitemap.xml
