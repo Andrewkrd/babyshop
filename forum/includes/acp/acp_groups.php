@@ -2,7 +2,7 @@
 /**
 *
 * @package acp
-* @version $Id: acp_groups.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -49,7 +49,7 @@ class acp_groups
 
 
 		// Clear some vars
-		$can_upload = (file_exists($phpbb_root_path . $config['avatar_path']) && @is_writable($phpbb_root_path . $config['avatar_path']) && $file_uploads) ? true : false;
+		$can_upload = (file_exists($phpbb_root_path . $config['avatar_path']) && phpbb_is_writable($phpbb_root_path . $config['avatar_path']) && $file_uploads) ? true : false;
 		$group_row = array();
 
 		// Grab basic data for group, if group_id is set and exists
@@ -87,24 +87,32 @@ class acp_groups
 
 				// Approve, demote or promote
 				$group_name = ($group_row['group_type'] == GROUP_SPECIAL) ? $user->lang['G_' . $group_row['group_name']] : $group_row['group_name'];
-				group_user_attributes($action, $group_id, $mark_ary, false, $group_name);
+				$error = group_user_attributes($action, $group_id, $mark_ary, false, $group_name);
 
-				switch ($action)
+				if (!$error)
 				{
-					case 'demote':
-						$message = 'GROUP_MODS_DEMOTED';
-					break;
+					switch ($action)
+					{
+						case 'demote':
+							$message = 'GROUP_MODS_DEMOTED';
+						break;
 
-					case 'promote':
-						$message = 'GROUP_MODS_PROMOTED';
-					break;
+						case 'promote':
+							$message = 'GROUP_MODS_PROMOTED';
+						break;
 
-					case 'approve':
-						$message = 'USERS_APPROVED';
-					break;
+						case 'approve':
+							$message = 'USERS_APPROVED';
+						break;
+					}
+
+					trigger_error($user->lang[$message] . adm_back_link($this->u_action . '&amp;action=list&amp;g=' . $group_id));
+				}
+				else
+				{
+					trigger_error($user->lang[$error] . adm_back_link($this->u_action . '&amp;action=list&amp;g=' . $group_id), E_USER_WARNING);
 				}
 
-				trigger_error($user->lang[$message] . adm_back_link($this->u_action . '&amp;action=list&amp;g=' . $group_id));
 			break;
 
 			case 'default':
@@ -172,13 +180,17 @@ class acp_groups
 
 			case 'deleteusers':
 			case 'delete':
+				if (!$group_id)
+				{
+					trigger_error($user->lang['NO_GROUP'] . adm_back_link($this->u_action), E_USER_WARNING);
+				}
+				else if ($action === 'delete' && $group_row['group_type'] == GROUP_SPECIAL)
+				{
+					trigger_error($user->lang['NO_AUTH_OPERATION'] . adm_back_link($this->u_action), E_USER_WARNING);
+				}
+
 				if (confirm_box(true))
 				{
-					if (!$group_id)
-					{
-						trigger_error($user->lang['NO_GROUP'] . adm_back_link($this->u_action), E_USER_WARNING);
-					}
-
 					$error = '';
 
 					switch ($action)
@@ -295,7 +307,9 @@ class acp_groups
 						'receive_pm'		=> isset($_REQUEST['group_receive_pm']) ? 1 : 0,
 						'legend'			=> isset($_REQUEST['group_legend']) ? 1 : 0,
 						'message_limit'		=> request_var('group_message_limit', 0),
+						'max_recipients'	=> request_var('group_max_recipients', 0),
 						'founder_manage'	=> 0,
+						'skip_auth'			=> request_var('group_skip_auth', 0),
 					);
 
 					if ($user->data['user_type'] == USER_FOUNDER)
@@ -380,6 +394,15 @@ class acp_groups
 						}
 					}
 
+					// Validate the length of "Maximum number of allowed recipients per private message" setting.
+					// We use 16777215 as a maximum because it matches MySQL unsigned mediumint maximum value
+					// which is the lowest amongst DBMSes supported by phpBB3
+					if ($max_recipients_error = validate_data($submit_ary, array('max_recipients' => array('num', false, 0, 16777215))))
+					{
+						// Replace "error" string with its real, localised form
+						$error = array_merge($error, array_map(array(&$user, 'lang'), $max_recipients_error));
+					}
+
 					if (!sizeof($error))
 					{
 						// Only set the rank, colour, etc. if it's changed or if we're adding a new
@@ -387,11 +410,26 @@ class acp_groups
 						// were made.
 
 						$group_attributes = array();
-						$test_variables = array('rank', 'colour', 'avatar', 'avatar_type', 'avatar_width', 'avatar_height', 'receive_pm', 'legend', 'message_limit', 'founder_manage');
-						foreach ($test_variables as $test)
+						$test_variables = array(
+							'rank'			=> 'int',
+							'colour'		=> 'string',
+							'avatar'		=> 'string',
+							'avatar_type'	=> 'int',
+							'avatar_width'	=> 'int',
+							'avatar_height'	=> 'int',
+							'receive_pm'	=> 'int',
+							'legend'		=> 'int',
+							'message_limit'	=> 'int',
+							'max_recipients'=> 'int',
+							'founder_manage'=> 'int',
+							'skip_auth'		=> 'int',
+						);
+
+						foreach ($test_variables as $test => $type)
 						{
 							if (isset($submit_ary[$test]) && ($action == 'add' || $group_row['group_' . $test] != $submit_ary[$test]))
 							{
+								settype($submit_ary[$test], $type);
 								$group_attributes['group_' . $test] = $group_row['group_' . $test] = $submit_ary[$test];
 							}
 						}
@@ -547,8 +585,9 @@ class acp_groups
 					'GROUP_FOUNDER_MANAGE'	=> (isset($group_row['group_founder_manage']) && $group_row['group_founder_manage']) ? ' checked="checked"' : '',
 					'GROUP_LEGEND'			=> (isset($group_row['group_legend']) && $group_row['group_legend']) ? ' checked="checked"' : '',
 					'GROUP_MESSAGE_LIMIT'	=> (isset($group_row['group_message_limit'])) ? $group_row['group_message_limit'] : 0,
+					'GROUP_MAX_RECIPIENTS'	=> (isset($group_row['group_max_recipients'])) ? $group_row['group_max_recipients'] : 0,
 					'GROUP_COLOUR'			=> (isset($group_row['group_colour'])) ? $group_row['group_colour'] : '',
-
+					'GROUP_SKIP_AUTH'		=> (!empty($group_row['group_skip_auth'])) ? ' checked="checked"' : '',
 
 					'S_DESC_BBCODE_CHECKED'	=> $group_desc_data['allow_bbcode'],
 					'S_DESC_URLS_CHECKED'	=> $group_desc_data['allow_urls'],
@@ -577,8 +616,7 @@ class acp_groups
 					'U_SWATCH'			=> append_sid("{$phpbb_admin_path}swatch.$phpEx", 'form=settings&amp;name=group_colour'),
 					'U_ACTION'			=> "{$this->u_action}&amp;action=$action&amp;g=$group_id",
 					'L_AVATAR_EXPLAIN'	=> sprintf($user->lang['AVATAR_EXPLAIN'], $config['avatar_max_width'], $config['avatar_max_height'], round($config['avatar_filesize'] / 1024)),
-					)
-				);
+				));
 
 				return;
 			break;
@@ -593,7 +631,7 @@ class acp_groups
 				$this->page_title = 'GROUP_MEMBERS';
 
 				// Grab the leaders - always, on every page...
-				$sql = 'SELECT u.user_id, u.username, u.username_clean, u.user_regdate, u.user_posts, u.group_id, ug.group_leader, ug.user_pending
+				$sql = 'SELECT u.user_id, u.username, u.username_clean, u.user_regdate, u.user_colour, u.user_posts, u.group_id, ug.group_leader, ug.user_pending
 					FROM ' . USERS_TABLE . ' u, ' . USER_GROUP_TABLE . " ug
 					WHERE ug.group_id = $group_id
 						AND u.user_id = ug.user_id
@@ -607,11 +645,12 @@ class acp_groups
 						'U_USER_EDIT'		=> append_sid("{$phpbb_admin_path}index.$phpEx", "i=users&amp;action=edit&amp;u={$row['user_id']}"),
 
 						'USERNAME'			=> $row['username'],
+						'USERNAME_COLOUR'	=> $row['user_colour'],
 						'S_GROUP_DEFAULT'	=> ($row['group_id'] == $group_id) ? true : false,
 						'JOINED'			=> ($row['user_regdate']) ? $user->format_date($row['user_regdate']) : ' - ',
 						'USER_POSTS'		=> $row['user_posts'],
-						'USER_ID'			=> $row['user_id'])
-					);
+						'USER_ID'			=> $row['user_id'],
+					));
 				}
 				$db->sql_freeresult($result);
 
@@ -648,7 +687,7 @@ class acp_groups
 				));
 
 				// Grab the members
-				$sql = 'SELECT u.user_id, u.username, u.username_clean, u.user_regdate, u.user_posts, u.group_id, ug.group_leader, ug.user_pending
+				$sql = 'SELECT u.user_id, u.username, u.username_clean, u.user_colour, u.user_regdate, u.user_posts, u.group_id, ug.group_leader, ug.user_pending
 					FROM ' . USERS_TABLE . ' u, ' . USER_GROUP_TABLE . " ug
 					WHERE ug.group_id = $group_id
 						AND u.user_id = ug.user_id
@@ -673,6 +712,7 @@ class acp_groups
 						'U_USER_EDIT'		=> append_sid("{$phpbb_admin_path}index.$phpEx", "i=users&amp;action=edit&amp;u={$row['user_id']}"),
 
 						'USERNAME'			=> $row['username'],
+						'USERNAME_COLOUR'	=> $row['user_colour'],
 						'S_GROUP_DEFAULT'	=> ($row['group_id'] == $group_id) ? true : false,
 						'JOINED'			=> ($row['user_regdate']) ? $user->format_date($row['user_regdate']) : ' - ',
 						'USER_POSTS'		=> $row['user_posts'],
@@ -739,18 +779,17 @@ class acp_groups
 			foreach ($row_ary as $group_id => $row)
 			{
 				$group_name = (!empty($user->lang['G_' . $row['group_name']]))? $user->lang['G_' . $row['group_name']] : $row['group_name'];
-				
+
 				$template->assign_block_vars('groups', array(
 					'U_LIST'		=> "{$this->u_action}&amp;action=list&amp;g=$group_id",
 					'U_EDIT'		=> "{$this->u_action}&amp;action=edit&amp;g=$group_id",
 					'U_DELETE'		=> ($auth->acl_get('a_groupdel')) ? "{$this->u_action}&amp;action=delete&amp;g=$group_id" : '',
 
 					'S_GROUP_SPECIAL'	=> ($row['group_type'] == GROUP_SPECIAL) ? true : false,
-					
+
 					'GROUP_NAME'	=> $group_name,
 					'TOTAL_MEMBERS'	=> $row['total_members'],
-					)
-				);
+				));
 			}
 		}
 	}

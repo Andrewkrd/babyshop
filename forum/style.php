@@ -2,7 +2,7 @@
 /**
 *
 * @package phpBB3
-* @version $Id: style.php 8486 2008-04-02 08:51:21Z acydburn $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -15,23 +15,16 @@ define('IN_PHPBB', true);
 $phpbb_root_path = (defined('PHPBB_ROOT_PATH')) ? PHPBB_ROOT_PATH : './';
 $phpEx = substr(strrchr(__FILE__, '.'), 1);
 
-// Report all errors, except notices
-error_reporting(E_ALL ^ E_NOTICE);
-
+require($phpbb_root_path . 'includes/startup.' . $phpEx);
 require($phpbb_root_path . 'config.' . $phpEx);
 
-if (!defined('PHPBB_INSTALLED') || empty($dbms) || !isset($dbhost) || !isset($dbpasswd) || empty($dbuser))
+if (!defined('PHPBB_INSTALLED') || empty($dbms) || empty($acm_type))
 {
 	exit;
 }
 
-if (version_compare(PHP_VERSION, '6.0.0-dev', '<'))
-{
-	set_magic_quotes_runtime(0);
-}
-
 // Load Extensions
-if (!empty($load_extensions))
+if (!empty($load_extensions) && function_exists('dl'))
 {
 	$load_extensions = explode(',', $load_extensions);
 
@@ -41,14 +34,7 @@ if (!empty($load_extensions))
 	}
 }
 
-
-$sid = (isset($_GET['sid']) && !is_array($_GET['sid'])) ? htmlspecialchars($_GET['sid']) : '';
 $id = (isset($_GET['id'])) ? intval($_GET['id']) : 0;
-
-if (strspn($sid, 'abcdefABCDEF0123456789') !== strlen($sid))
-{
-	$sid = '';
-}
 
 // This is a simple script to grab and output the requested CSS data stored in the DB
 // We include a session_id check to try and limit 3rd party linking ... unless they
@@ -57,16 +43,12 @@ if (strspn($sid, 'abcdefABCDEF0123456789') !== strlen($sid))
 // server a little
 if ($id)
 {
-	if (empty($acm_type) || empty($dbms))
-	{
-		die('Hacking attempt');
-	}
-
 	// Include files
 	require($phpbb_root_path . 'includes/acm/acm_' . $acm_type . '.' . $phpEx);
 	require($phpbb_root_path . 'includes/cache.' . $phpEx);
 	require($phpbb_root_path . 'includes/db/' . $dbms . '.' . $phpEx);
 	require($phpbb_root_path . 'includes/constants.' . $phpEx);
+	require($phpbb_root_path . 'includes/functions.' . $phpEx);
 
 	$db = new $sql_db();
 	$cache = new cache();
@@ -80,6 +62,20 @@ if ($id)
 
 	$config = $cache->obtain_config();
 	$user = false;
+
+	// try to get a session ID from REQUEST array
+	$sid = request_var('sid', '');
+
+	if (!$sid)
+	{
+		// if that failed, then look in the cookies
+		$sid = request_var($config['cookie_name'] . '_sid', '', false, true);
+	}
+
+	if (strspn($sid, 'abcdefABCDEF0123456789') !== strlen($sid))
+	{
+		$sid = '';
+	}
 
 	if ($sid)
 	{
@@ -95,12 +91,13 @@ if ($id)
 	$recompile = $config['load_tplcompile'];
 	if (!$user)
 	{
-		$id			= $config['default_style'];
-		$recompile	= false;
+		$id			= ($id) ? $id : $config['default_style'];
+//		Commented out because calls do not always include the SID anymore
+//		$recompile	= false;
 		$user		= array('user_id' => ANONYMOUS);
 	}
 
-	$sql = 'SELECT s.style_id, c.theme_data, c.theme_path, c.theme_name, c.theme_mtime, i.*, t.template_path
+	$sql = 'SELECT s.style_id, c.theme_id, c.theme_data, c.theme_path, c.theme_name, c.theme_mtime, i.*, t.template_path
 		FROM ' . STYLES_TABLE . ' s, ' . STYLES_TEMPLATE_TABLE . ' t, ' . STYLES_THEME_TABLE . ' c, ' . STYLES_IMAGESET_TABLE . ' i
 		WHERE s.style_id = ' . $id . '
 			AND t.template_id = s.template_id
@@ -122,10 +119,11 @@ if ($id)
 
 	$user_image_lang = (file_exists($phpbb_root_path . 'styles/' . $theme['imageset_path'] . '/imageset/' . $user['user_lang'])) ? $user['user_lang'] : $config['default_lang'];
 
+	// Same query in session.php
 	$sql = 'SELECT *
 		FROM ' . STYLES_IMAGESET_DATA_TABLE . '
 		WHERE imageset_id = ' . $theme['imageset_id'] . "
-		AND image_filename <> '' 
+		AND image_filename <> ''
 		AND image_lang IN ('" . $db->sql_escape($user_image_lang) . "', '')";
 	$result = $db->sql_query($sql, 3600);
 
@@ -198,7 +196,7 @@ if ($id)
 		);
 
 		$sql = 'UPDATE ' . STYLES_THEME_TABLE . ' SET ' . $db->sql_build_array('UPDATE', $sql_ary) . "
-			WHERE theme_id = $id";
+			WHERE theme_id = {$theme['theme_id']}";
 		$db->sql_query($sql);
 
 		$cache->destroy('sql', STYLES_THEME_TABLE);
@@ -218,10 +216,10 @@ if ($id)
 
 	// Parse Theme Data
 	$replace = array(
-		'{T_THEME_PATH}'			=> "{$phpbb_root_path}styles/" . $theme['theme_path'] . '/theme',
-		'{T_TEMPLATE_PATH}'			=> "{$phpbb_root_path}styles/" . $theme['template_path'] . '/template',
-		'{T_IMAGESET_PATH}'			=> "{$phpbb_root_path}styles/" . $theme['imageset_path'] . '/imageset',
-		'{T_IMAGESET_LANG_PATH}'	=> "{$phpbb_root_path}styles/" . $theme['imageset_path'] . '/imageset/' . $user_image_lang,
+		'{T_THEME_PATH}'			=> "{$phpbb_root_path}styles/" . rawurlencode($theme['theme_path']) . '/theme',
+		'{T_TEMPLATE_PATH}'			=> "{$phpbb_root_path}styles/" . rawurlencode($theme['template_path']) . '/template',
+		'{T_IMAGESET_PATH}'			=> "{$phpbb_root_path}styles/" . rawurlencode($theme['imageset_path']) . '/imageset',
+		'{T_IMAGESET_LANG_PATH}'	=> "{$phpbb_root_path}styles/" . rawurlencode($theme['imageset_path']) . '/imageset/' . $user_image_lang,
 		'{T_STYLESHEET_NAME}'		=> $theme['theme_name'],
 		'{S_USER_LANG}'				=> $user['user_lang']
 	);
@@ -250,7 +248,7 @@ if ($id)
 				$img_data = &$img_array[$img];
 				$imgsrc = ($img_data['image_lang'] ? $img_data['image_lang'] . '/' : '') . $img_data['image_filename'];
 				$imgs[$img] = array(
-					'src'		=> $phpbb_root_path . 'styles/' . $theme['imageset_path'] . '/imageset/' . $imgsrc,
+					'src'		=> $phpbb_root_path . 'styles/' . rawurlencode($theme['imageset_path']) . '/imageset/' . $imgsrc,
 					'width'		=> $img_data['image_width'],
 					'height'	=> $img_data['image_height'],
 				);
@@ -261,11 +259,11 @@ if ($id)
 				case 'SRC':
 					$replace[] = $imgs[$img]['src'];
 				break;
-				
+
 				case 'WIDTH':
 					$replace[] = $imgs[$img]['width'];
 				break;
-	
+
 				case 'HEIGHT':
 					$replace[] = $imgs[$img]['height'];
 				break;

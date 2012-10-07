@@ -4,7 +4,7 @@
 * acp_database [English]
 *
 * @package language
-* @version $Id: database.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -54,10 +54,12 @@ $lang = array_merge($lang, array(
 	'DOWNLOAD_BACKUP'	=> 'Download backup',
 
 	'FILE_TYPE'			=> 'File type',
+	'FILE_WRITE_FAIL'	=> 'Unable to write file to storage folder.',
 	'FULL_BACKUP'		=> 'Full',
 
 	'RESTORE_FAILURE'		=> 'The backup file may be corrupt.',
 	'RESTORE_OPTIONS'		=> 'Restore options',
+	'RESTORE_SELECTED_BACKUP'	=> 'Are you sure you want to restore the selected backup?',
 	'RESTORE_SUCCESS'		=> 'The database has been successfully restored.<br /><br />Your board should be back to the state it was when the backup was made.',
 
 	'SELECT_ALL'			=> 'Select all',

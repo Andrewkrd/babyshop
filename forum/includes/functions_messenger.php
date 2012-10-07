@@ -2,7 +2,7 @@
 /**
 *
 * @package phpBB3
-* @version $Id: functions_messenger.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -27,7 +27,10 @@ class messenger
 
 	var $mail_priority = MAIL_NORMAL_PRIORITY;
 	var $use_queue = true;
+
+	var $tpl_obj = NULL;
 	var $tpl_msg = array();
+	var $eol = "\n";
 
 	/**
 	* Constructor
@@ -38,6 +41,10 @@ class messenger
 
 		$this->use_queue = (!$config['email_package_size']) ? false : $use_queue;
 		$this->subject = '';
+
+		// Determine EOL character (\n for UNIX, \r\n for Windows and \r for Mac)
+		$this->eol = (!defined('PHP_EOL')) ? (($eol = strtolower(substr(PHP_OS, 0, 3))) == 'win') ? "\r\n" : (($eol == 'mac') ? "\r" : "\n") : PHP_EOL;
+		$this->eol = (!$this->eol) ? "\n" : $this->eol;
 	}
 
 	/**
@@ -56,6 +63,11 @@ class messenger
 	function to($address, $realname = '')
 	{
 		global $config;
+
+		if (!trim($address))
+		{
+			return;
+		}
 
 		$pos = isset($this->addresses['to']) ? sizeof($this->addresses['to']) : 0;
 
@@ -77,6 +89,11 @@ class messenger
 	*/
 	function cc($address, $realname = '')
 	{
+		if (!trim($address))
+		{
+			return;
+		}
+
 		$pos = isset($this->addresses['cc']) ? sizeof($this->addresses['cc']) : 0;
 		$this->addresses['cc'][$pos]['email'] = trim($address);
 		$this->addresses['cc'][$pos]['name'] = trim($realname);
@@ -87,6 +104,11 @@ class messenger
 	*/
 	function bcc($address, $realname = '')
 	{
+		if (!trim($address))
+		{
+			return;
+		}
+
 		$pos = isset($this->addresses['bcc']) ? sizeof($this->addresses['bcc']) : 0;
 		$this->addresses['bcc'][$pos]['email'] = trim($address);
 		$this->addresses['bcc'][$pos]['name'] = trim($realname);
@@ -97,6 +119,12 @@ class messenger
 	*/
 	function im($address, $realname = '')
 	{
+		// IM-Addresses could be empty
+		if (!trim($address))
+		{
+			return;
+		}
+
 		$pos = isset($this->addresses['im']) ? sizeof($this->addresses['im']) : 0;
 		$this->addresses['im'][$pos]['uid'] = trim($address);
 		$this->addresses['im'][$pos]['name'] = trim($realname);
@@ -135,6 +163,22 @@ class messenger
 	}
 
 	/**
+	* Adds X-AntiAbuse headers
+	*
+	* @param array $config		Configuration array
+	* @param user $user			A user object
+	*
+	* @return null
+	*/
+	function anti_abuse_headers($config, $user)
+	{
+		$this->headers('X-AntiAbuse: Board servername - ' . mail_encode($config['server_name']));
+		$this->headers('X-AntiAbuse: User_id - ' . $user->data['user_id']);
+		$this->headers('X-AntiAbuse: Username - ' . mail_encode($user->data['username']));
+		$this->headers('X-AntiAbuse: User IP - ' . $user->ip);
+	}
+
+	/**
 	* Set the email priority
 	*/
 	function set_mail_priority($priority = MAIL_NORMAL_PRIORITY)
@@ -145,38 +189,55 @@ class messenger
 	/**
 	* Set email template to use
 	*/
-	function template($template_file, $template_lang = '')
+	function template($template_file, $template_lang = '', $template_path = '')
 	{
-		global $config, $phpbb_root_path;
+		global $config, $phpbb_root_path, $user;
 
 		if (!trim($template_file))
 		{
-			trigger_error('No template file set', E_USER_ERROR);
+			trigger_error('No template file for emailing set.', E_USER_ERROR);
 		}
 
 		if (!trim($template_lang))
 		{
+			// fall back to board default language if the user's language is
+			// missing $template_file.  If this does not exist either,
+			// $tpl->set_custom_template will do a trigger_error
 			$template_lang = basename($config['default_lang']);
 		}
 
-		if (empty($this->tpl_msg[$template_lang . $template_file]))
+		// tpl_msg now holds a template object we can use to parse the template file
+		if (!isset($this->tpl_msg[$template_lang . $template_file]))
 		{
-			$tpl_file = "{$phpbb_root_path}language/$template_lang/email/$template_file.txt";
+			$this->tpl_msg[$template_lang . $template_file] = new template();
+			$tpl = &$this->tpl_msg[$template_lang . $template_file];
 
-			if (!file_exists($tpl_file))
+			$fallback_template_path = false;
+
+			if (!$template_path)
 			{
-				trigger_error("Could not find email template file [ $tpl_file ]", E_USER_ERROR);
+				$template_path = (!empty($user->lang_path)) ? $user->lang_path : $phpbb_root_path . 'language/';
+				$template_path .= $template_lang . '/email';
+
+				// we can only specify default language fallback when the path is not a custom one for which we
+				// do not know the default language alternative
+				if ($template_lang !== basename($config['default_lang']))
+				{
+					$fallback_template_path = (!empty($user->lang_path)) ? $user->lang_path : $phpbb_root_path . 'language/';
+					$fallback_template_path .= basename($config['default_lang']) . '/email';
+				}
 			}
 
-			if (($data = @file_get_contents($tpl_file)) === false)
-			{
-				trigger_error("Failed opening template file [ $tpl_file ]", E_USER_ERROR);
-			}
+			$tpl->set_custom_template($template_path, $template_lang . '_email', $fallback_template_path);
 
-			$this->tpl_msg[$template_lang . $template_file] = $data;
+			$tpl->set_filenames(array(
+				'body'		=> $template_file . '.txt',
+			));
 		}
 
-		$this->msg = $this->tpl_msg[$template_lang . $template_file];
+		$this->tpl_obj = &$this->tpl_msg[$template_lang . $template_file];
+		$this->vars = &$this->tpl_obj->_rootref;
+		$this->tpl_msg = '';
 
 		return true;
 	}
@@ -186,7 +247,22 @@ class messenger
 	*/
 	function assign_vars($vars)
 	{
-		$this->vars = (empty($this->vars)) ? $vars : $this->vars + $vars;
+		if (!is_object($this->tpl_obj))
+		{
+			return;
+		}
+
+		$this->tpl_obj->assign_vars($vars);
+	}
+
+	function assign_block_vars($blockname, $vars)
+	{
+		if (!is_object($this->tpl_obj))
+		{
+			return;
+		}
+
+		$this->tpl_obj->assign_block_vars($blockname, $vars);
 	}
 
 	/**
@@ -197,15 +273,32 @@ class messenger
 		global $config, $user;
 
 		// We add some standard variables we always use, no need to specify them always
-		$this->vars['U_BOARD'] = (!isset($this->vars['U_BOARD'])) ? generate_board_url() : $this->vars['U_BOARD'];
-		$this->vars['EMAIL_SIG'] = (!isset($this->vars['EMAIL_SIG'])) ? str_replace('<br />', "\n", "-- \n" . htmlspecialchars_decode($config['board_email_sig'])) : $this->vars['EMAIL_SIG'];
-		$this->vars['SITENAME'] = (!isset($this->vars['SITENAME'])) ? htmlspecialchars_decode($config['sitename']) : $this->vars['SITENAME'];
+		if (!isset($this->vars['U_BOARD']))
+		{
+			$this->assign_vars(array(
+				'U_BOARD'	=> generate_board_url(),
+			));
+		}
 
-		// Escape all quotes, else the eval will fail.
-		$this->msg = str_replace ("'", "\'", $this->msg);
-		$this->msg = preg_replace('#\{([a-z0-9\-_]*?)\}#is', "' . ((isset(\$this->vars['\\1'])) ? \$this->vars['\\1'] : '') . '", $this->msg);
+		if (!isset($this->vars['EMAIL_SIG']))
+		{
+			$this->assign_vars(array(
+				'EMAIL_SIG'	=> str_replace('<br />', "\n", "-- \n" . htmlspecialchars_decode($config['board_email_sig'])),
+			));
+		}
 
-		eval("\$this->msg = '$this->msg';");
+		if (!isset($this->vars['SITENAME']))
+		{
+			$this->assign_vars(array(
+				'SITENAME'	=> htmlspecialchars_decode($config['sitename']),
+			));
+		}
+
+		// Parse message through template
+		$this->msg = trim($this->tpl_obj->assign_display('body'));
+
+		// Because we use \n for newlines in the body message we need to fix line encoding errors for those admins who uploaded email template files in the wrong encoding
+		$this->msg = str_replace("\r\n", "\n", $this->msg);
 
 		// We now try and pull a subject from the email body ... if it exists,
 		// do this here because the subject may contain a variable
@@ -303,6 +396,7 @@ class messenger
 	{
 		global $config;
 
+		// We could use keys here, but we won't do this for 3.0.x to retain backwards compatibility
 		$headers = array();
 
 		$headers[] = 'From: ' . $this->from;
@@ -328,19 +422,16 @@ class messenger
 
 		$headers[] = 'X-Priority: ' . $this->mail_priority;
 		$headers[] = 'X-MSMail-Priority: ' . (($this->mail_priority == MAIL_LOW_PRIORITY) ? 'Low' : (($this->mail_priority == MAIL_NORMAL_PRIORITY) ? 'Normal' : 'High'));
-		$headers[] = 'X-Mailer: PhpBB3';
+		$headers[] = 'X-Mailer: phpBB3';
 		$headers[] = 'X-MimeOLE: phpBB3';
 		$headers[] = 'X-phpBB-Origin: phpbb://' . str_replace(array('http://', 'https://'), array('', ''), generate_board_url());
 
-		// We use \n here instead of \r\n because our smtp mailer is adjusting it to \r\n automatically, whereby the php mail function only works
-		// if using \n.
-
 		if (sizeof($this->extra_headers))
 		{
-			$headers[] = implode("\n", $this->extra_headers);
+			$headers = array_merge($headers, $this->extra_headers);
 		}
 
-		return implode("\n", $headers);
+		return $headers;
 	}
 
 	/**
@@ -353,6 +444,13 @@ class messenger
 		if (empty($config['email_enable']))
 		{
 			return false;
+		}
+
+		// Addresses to send to?
+		if (empty($this->addresses) || (empty($this->addresses['to']) && empty($this->addresses['cc']) && empty($this->addresses['bcc'])))
+		{
+			// Send was successful. ;)
+			return true;
 		}
 
 		$use_queue = false;
@@ -376,6 +474,8 @@ class messenger
 			$this->from = '<' . $config['board_contact'] . '>';
 		}
 
+		$encode_eol = ($config['smtp_delivery']) ? "\r\n" : $this->eol;
+
 		// Build to, cc and bcc strings
 		$to = $cc = $bcc = '';
 		foreach ($this->addresses as $type => $address_ary)
@@ -387,7 +487,7 @@ class messenger
 
 			foreach ($address_ary as $which_ary)
 			{
-				$$type .= (($$type != '') ? ', ' : '') . (($which_ary['name'] != '') ? '"' . mail_encode($which_ary['name']) . '" <' . $which_ary['email'] . '>' : $which_ary['email']);
+				$$type .= (($$type != '') ? ', ' : '') . (($which_ary['name'] != '') ? mail_encode($which_ary['name'], $encode_eol) . ' <' . $which_ary['email'] . '>' : $which_ary['email']);
 			}
 		}
 
@@ -406,9 +506,7 @@ class messenger
 			}
 			else
 			{
-				ob_start();
-				$result = $config['email_function_name']($mail_to, mail_encode($this->subject), wordwrap(utf8_wordwrap($this->msg), 997, "\n", true), $headers);
-				$err_msg = ob_get_clean();
+				$result = phpbb_mail($mail_to, $this->subject, $this->msg, $headers, $this->eol, $err_msg);
 			}
 
 			if (!$result)
@@ -443,6 +541,12 @@ class messenger
 			return false;
 		}
 
+		if (empty($this->addresses['im']))
+		{
+			// Send was successful. ;)
+			return true;
+		}
+
 		$use_queue = false;
 		if ($config['jab_package_size'] && $this->use_queue)
 		{
@@ -464,7 +568,7 @@ class messenger
 		if (!$use_queue)
 		{
 			include_once($phpbb_root_path . 'includes/functions_jabber.' . $phpEx);
-			$this->jabber = new jabber($config['jab_host'], $config['jab_port'], $config['jab_username'], $config['jab_password'], $config['jab_use_ssl']);
+			$this->jabber = new jabber($config['jab_host'], $config['jab_port'], $config['jab_username'], htmlspecialchars_decode($config['jab_password']), $config['jab_use_ssl']);
 
 			if (!$this->jabber->connect())
 			{
@@ -508,6 +612,7 @@ class queue
 	var $queue_data = array();
 	var $package_size = 0;
 	var $cache_file = '';
+	var $eol = "\n";
 
 	/**
 	* constructor
@@ -518,6 +623,10 @@ class queue
 
 		$this->data = array();
 		$this->cache_file = "{$phpbb_root_path}cache/queue.$phpEx";
+
+		// Determine EOL character (\n for UNIX, \r\n for Windows and \r for Mac)
+		$this->eol = (!defined('PHP_EOL')) ? (($eol = strtolower(substr(PHP_OS, 0, 3))) == 'win') ? "\r\n" : (($eol == 'mac') ? "\r" : "\n") : PHP_EOL;
+		$this->eol = (!$this->eol) ? "\n" : $this->eol;
 	}
 
 	/**
@@ -539,6 +648,64 @@ class queue
 	}
 
 	/**
+	* Obtains exclusive lock on queue cache file.
+	* Returns resource representing the lock
+	*/
+	function lock()
+	{
+		// For systems that can't have two processes opening
+		// one file for writing simultaneously
+		if (file_exists($this->cache_file . '.lock'))
+		{
+			$mode = 'rb';
+		}
+		else
+		{
+			$mode = 'wb';
+		}
+
+		$lock_fp = @fopen($this->cache_file . '.lock', $mode);
+
+		if ($mode == 'wb')
+		{
+			if (!$lock_fp)
+			{
+				// Two processes may attempt to create lock file at the same time.
+				// Have the losing process try opening the lock file again for reading
+				// on the assumption that the winning process created it
+				$mode = 'rb';
+				$lock_fp = @fopen($this->cache_file . '.lock', $mode);
+			}
+			else
+			{
+				// Only need to set mode when the lock file is written
+				@chmod($this->cache_file . '.lock', 0666);
+			}
+		}
+
+		if ($lock_fp)
+		{
+			@flock($lock_fp, LOCK_EX);
+		}
+
+		return $lock_fp;
+	}
+
+	/**
+	* Releases lock on queue cache file, using resource obtained from lock()
+	*/
+	function unlock($lock_fp)
+	{
+		// lock() will return null if opening lock file, and thus locking, failed.
+		// Accept null values here so that client code does not need to check them
+		if ($lock_fp)
+		{
+			@flock($lock_fp, LOCK_UN);
+			fclose($lock_fp);
+		}
+	}
+
+	/**
 	* Process queue
 	* Using lock file
 	*/
@@ -546,23 +713,15 @@ class queue
 	{
 		global $db, $config, $phpEx, $phpbb_root_path, $user;
 
+		$lock_fp = $this->lock();
+
 		set_config('last_queue_run', time(), true);
 
-		// Delete stale lock file
-		if (file_exists($this->cache_file . '.lock') && !file_exists($this->cache_file))
+		if (!file_exists($this->cache_file) || filemtime($this->cache_file) > time() - $config['queue_interval'])
 		{
-			@unlink($this->cache_file . '.lock');
+			$this->unlock($lock_fp);
 			return;
 		}
-
-		if (!file_exists($this->cache_file) || (file_exists($this->cache_file . '.lock') && filemtime($this->cache_file) > time() - $config['queue_interval']))
-		{
-			return;
-		}
-
-		$fp = @fopen($this->cache_file . '.lock', 'wb');
-		fclose($fp);
-		@chmod($this->cache_file . '.lock', 0666);
 
 		include($this->cache_file);
 
@@ -578,11 +737,18 @@ class queue
 			$package_size = $data_ary['package_size'];
 			$num_items = (!$package_size || sizeof($data_ary['data']) < $package_size) ? sizeof($data_ary['data']) : $package_size;
 
+			/*
+			* This code is commented out because it causes problems on some web hosts.
+			* The core problem is rather restrictive email sending limits.
+			* This code is nly useful if you have no such restrictions from the
+			* web host and the package size setting is wrong.
+
 			// If the amount of emails to be sent is way more than package_size than we need to increase it to prevent backlogs...
 			if (sizeof($data_ary['data']) > $package_size * 2.5)
 			{
 				$num_items = sizeof($data_ary['data']);
 			}
+			*/
 
 			switch ($object)
 			{
@@ -603,7 +769,7 @@ class queue
 					}
 
 					include_once($phpbb_root_path . 'includes/functions_jabber.' . $phpEx);
-					$this->jabber = new jabber($config['jab_host'], $config['jab_port'], $config['jab_username'], $config['jab_password'], $config['jab_use_ssl']);
+					$this->jabber = new jabber($config['jab_host'], $config['jab_port'], $config['jab_username'], htmlspecialchars_decode($config['jab_password']), $config['jab_use_ssl']);
 
 					if (!$this->jabber->connect())
 					{
@@ -620,6 +786,7 @@ class queue
 				break;
 
 				default:
+					$this->unlock($lock_fp);
 					return;
 			}
 
@@ -640,15 +807,11 @@ class queue
 						}
 						else
 						{
-							ob_start();
-							$result = $config['email_function_name']($to, mail_encode($subject), wordwrap(utf8_wordwrap($msg), 997, "\n", true), $headers);
-							$err_msg = ob_get_clean();
+							$result = phpbb_mail($to, $subject, $msg, $headers, $this->eol, $err_msg);
 						}
 
 						if (!$result)
 						{
-							@unlink($this->cache_file . '.lock');
-
 							messenger::error('EMAIL', $err_msg);
 							continue 2;
 						}
@@ -683,25 +846,23 @@ class queue
 				break;
 			}
 		}
-	
+
 		if (!sizeof($this->queue_data))
 		{
 			@unlink($this->cache_file);
 		}
 		else
 		{
-			if ($fp = @fopen($this->cache_file, 'w'))
+			if ($fp = @fopen($this->cache_file, 'wb'))
 			{
-				@flock($fp, LOCK_EX);
-				fwrite($fp, "<?php\n\$this->queue_data = " . var_export($this->queue_data, true) . ";\n?>");
-				@flock($fp, LOCK_UN);
+				fwrite($fp, "<?php\nif (!defined('IN_PHPBB')) exit;\n\$this->queue_data = unserialize(" . var_export(serialize($this->queue_data), true) . ");\n\n?>");
 				fclose($fp);
 
-				@chmod($this->cache_file, 0666);
+				phpbb_chmod($this->cache_file, CHMOD_READ | CHMOD_WRITE);
 			}
 		}
 
-		@unlink($this->cache_file . '.lock');
+		$this->unlock($lock_fp);
 	}
 
 	/**
@@ -713,11 +874,13 @@ class queue
 		{
 			return;
 		}
-		
+
+		$lock_fp = $this->lock();
+
 		if (file_exists($this->cache_file))
 		{
 			include($this->cache_file);
-			
+
 			foreach ($this->queue_data as $object => $data_ary)
 			{
 				if (isset($this->data[$object]) && sizeof($this->data[$object]))
@@ -733,53 +896,50 @@ class queue
 
 		if ($fp = @fopen($this->cache_file, 'w'))
 		{
-			@flock($fp, LOCK_EX);
-			fwrite($fp, "<?php\n\$this->queue_data = " . var_export($this->data, true) . ";\n?>");
-			@flock($fp, LOCK_UN);
+			fwrite($fp, "<?php\nif (!defined('IN_PHPBB')) exit;\n\$this->queue_data = unserialize(" . var_export(serialize($this->data), true) . ");\n\n?>");
 			fclose($fp);
 
-			@chmod($this->cache_file, 0666);
+			phpbb_chmod($this->cache_file, CHMOD_READ | CHMOD_WRITE);
 		}
+
+		$this->unlock($lock_fp);
 	}
 }
 
 /**
 * Replacement or substitute for PHP's mail command
 */
-function smtpmail($addresses, $subject, $message, &$err_msg, $headers = '')
+function smtpmail($addresses, $subject, $message, &$err_msg, $headers = false)
 {
 	global $config, $user;
 
 	// Fix any bare linefeeds in the message to make it RFC821 Compliant.
 	$message = preg_replace("#(?<!\r)\n#si", "\r\n", $message);
 
-	if ($headers != '')
+	if ($headers !== false)
 	{
-		if (is_array($headers))
+		if (!is_array($headers))
 		{
-			$headers = (sizeof($headers) > 1) ? join("\n", $headers) : $headers[0];
+			// Make sure there are no bare linefeeds in the headers
+			$headers = preg_replace('#(?<!\r)\n#si', "\n", $headers);
+			$headers = explode("\n", $headers);
 		}
-		$headers = chop($headers);
-
-		// Make sure there are no bare linefeeds in the headers
-		$headers = preg_replace('#(?<!\r)\n#si', "\r\n", $headers);
 
 		// Ok this is rather confusing all things considered,
 		// but we have to grab bcc and cc headers and treat them differently
 		// Something we really didn't take into consideration originally
-		$header_array = explode("\r\n", $headers);
-		$headers = '';
+		$headers_used = array();
 
-		foreach ($header_array as $header)
+		foreach ($headers as $header)
 		{
 			if (strpos(strtolower($header), 'cc:') === 0 || strpos(strtolower($header), 'bcc:') === 0)
 			{
-				$header = '';
+				continue;
 			}
-			$headers .= ($header != '') ? $header . "\r\n" : '';
+			$headers_used[] = trim($header);
 		}
 
-		$headers = chop($headers);
+		$headers = chop(implode("\r\n", $headers_used));
 	}
 
 	if (trim($subject) == '')
@@ -831,9 +991,16 @@ function smtpmail($addresses, $subject, $message, &$err_msg, $headers = '')
 	$smtp->add_backtrace('Connecting to ' . $config['smtp_host'] . ':' . $config['smtp_port']);
 
 	// Ok we have error checked as much as we can to this point let's get on it already.
-	ob_start();
+	if (!class_exists('phpbb_error_collector'))
+	{
+		global $phpbb_root_path, $phpEx;
+		include($phpbb_root_path . 'includes/error_collector.' . $phpEx);
+	}
+	$collector = new phpbb_error_collector;
+	$collector->install();
 	$smtp->socket = fsockopen($config['smtp_host'], $config['smtp_port'], $errno, $errstr, 20);
-	$error_contents = ob_get_clean();
+	$collector->uninstall();
+	$error_contents = $collector->format_errors();
 
 	if (!$smtp->socket)
 	{
@@ -855,7 +1022,7 @@ function smtpmail($addresses, $subject, $message, &$err_msg, $headers = '')
 	}
 
 	// Let me in. This function handles the complete authentication process
-	if ($err_msg = $smtp->log_into_server($config['smtp_host'], $config['smtp_username'], $config['smtp_password'], $config['smtp_auth_method']))
+	if ($err_msg = $smtp->log_into_server($config['smtp_host'], $config['smtp_username'], htmlspecialchars_decode($config['smtp_password']), $config['smtp_auth_method']))
 	{
 		$smtp->close_session($err_msg);
 		return false;
@@ -935,7 +1102,10 @@ function smtpmail($addresses, $subject, $message, &$err_msg, $headers = '')
 	}
 
 	// Now any custom headers....
-	$smtp->server_send("$headers\r\n");
+	if ($headers !== false)
+	{
+		$smtp->server_send("$headers\r\n");
+	}
 
 	// Ok now we are ready for the message...
 	$smtp->server_send($message);
@@ -1047,7 +1217,7 @@ class smtp_class
 			$err_msg .= $message;
 		}
 	}
-	
+
 	/**
 	* Log into server and get possible auth codes if neccessary
 	*/
@@ -1056,7 +1226,24 @@ class smtp_class
 		global $user;
 
 		$err_msg = '';
-		$local_host = (function_exists('php_uname')) ? php_uname('n') : $user->host;
+
+		// Here we try to determine the *real* hostname (reverse DNS entry preferrably)
+		$local_host = $user->host;
+
+		if (function_exists('php_uname'))
+		{
+			$local_host = php_uname('n');
+
+			// Able to resolve name to IP
+			if (($addr = @gethostbyname($local_host)) !== $local_host)
+			{
+				// Able to resolve IP back to name
+				if (($name = @gethostbyaddr($addr)) !== $addr)
+				{
+					$local_host = $name;
+				}
+			}
+		}
 
 		// If we are authenticating through pop-before-smtp, we
 		// have to login ones before we get authenticated
@@ -1108,7 +1295,7 @@ class smtp_class
 				return false;
 			}
 
-			// If EHLO fails, we try HELO			
+			// If EHLO fails, we try HELO
 			$this->server_send("HELO {$local_host}");
 			if ($err_msg = $this->server_parse('250', __LINE__))
 			{
@@ -1129,7 +1316,7 @@ class smtp_class
 		{
 			return false;
 		}
-		
+
 		if (!isset($this->commands['AUTH']))
 		{
 			return (isset($user->lang['SMTP_NO_AUTH_SUPPORT'])) ? $user->lang['SMTP_NO_AUTH_SUPPORT'] : 'SMTP server does not support authentication';
@@ -1290,7 +1477,7 @@ class smtp_class
 		}
 
 		$md5_challenge = base64_decode($this->responses[0]);
-		
+
 		// Parse the md5 challenge - from AUTH_SASL (PEAR)
 		$tokens = array();
 		while (preg_match('/^([a-z-]+)=("[^"]+(?<!\\\)"|[^,]+)/i', $md5_challenge, $matches))
@@ -1394,15 +1581,18 @@ class smtp_class
 * is basically doomed with an unreadable subject.
 *
 * Please note that this version fully supports RFC 2045 section 6.8.
+*
+* @param string $eol End of line we are using (optional to be backwards compatible)
 */
-function mail_encode($str)
+function mail_encode($str, $eol = "\r\n")
 {
 	// define start delimimter, end delimiter and spacer
 	$start = "=?UTF-8?B?";
 	$end = "?=";
-	$spacer = $end . ' ' . $start;
-	$split_length = 64;
+	$delimiter = "$eol ";
 
+	// Maximum length is 75. $split_length *must* be a multiple of 4, but <= 75 - strlen($start . $delimiter . $end)!!!
+	$split_length = 60;
 	$encoded_str = base64_encode($str);
 
 	// If encoded string meets the limits, we just return with the correct data.
@@ -1414,7 +1604,7 @@ function mail_encode($str)
 	// If there is only ASCII data, we just return what we want, correctly splitting the lines.
 	if (strlen($str) === utf8_strlen($str))
 	{
-		return $start . implode($spacer, str_split($encoded_str, $split_length)) . $end;
+		return $start . implode($end . $delimiter . $start, str_split($encoded_str, $split_length)) . $end;
 	}
 
 	// UTF-8 data, compose encoded lines
@@ -1430,10 +1620,40 @@ function mail_encode($str)
 			$text .= array_shift($array);
 		}
 
-		$str .= $start . base64_encode($text) . $end . ' ';
+		$str .= $start . base64_encode($text) . $end . $delimiter;
 	}
 
-	return substr($str, 0, -1);
+	return substr($str, 0, -strlen($delimiter));
+}
+
+/**
+* Wrapper for sending out emails with the PHP's mail function
+*/
+function phpbb_mail($to, $subject, $msg, $headers, $eol, &$err_msg)
+{
+	global $config, $phpbb_root_path, $phpEx;
+
+	// We use the EOL character for the OS here because the PHP mail function does not correctly transform line endings. On Windows SMTP is used (SMTP is \r\n), on UNIX a command is used...
+	// Reference: http://bugs.php.net/bug.php?id=15841
+	$headers = implode($eol, $headers);
+
+	if (!class_exists('phpbb_error_collector'))
+	{
+		include($phpbb_root_path . 'includes/error_collector.' . $phpEx);
+	}
+
+	$collector = new phpbb_error_collector;
+	$collector->install();
+
+	// On some PHP Versions mail() *may* fail if there are newlines within the subject.
+	// Newlines are used as a delimiter for lines in mail_encode() according to RFC 2045 section 6.8.
+	// Because PHP can't decide what is wanted we revert back to the non-RFC-compliant way of separating by one space (Use '' as parameter to mail_encode() results in SPACE used)
+	$result = $config['email_function_name']($to, mail_encode($subject, ''), wordwrap(utf8_wordwrap($msg), 997, "\n", true), $headers);
+
+	$collector->uninstall();
+	$err_msg = $collector->format_errors();
+
+	return $result;
 }
 
 ?>

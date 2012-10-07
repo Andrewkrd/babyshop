@@ -2,7 +2,7 @@
 /**
 *
 * @package install
-* @version $Id: functions_convert.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2006 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -148,7 +148,7 @@ function auto_id($pad = 0)
 	{
 		return $convert_row['max_id'] + $pad;
 	}
-	
+
 	return $auto_id + $pad;
 }
 
@@ -205,10 +205,12 @@ function get_group_id($group_name)
 
 /**
 * Generate the email hash stored in the users table
+*
+* Note: Deprecated, calls should directly go to phpbb_email_hash()
 */
 function gen_email_hash($email)
 {
-	return (crc32(strtolower($email)) . strlen($email));
+	return phpbb_email_hash($email);
 }
 
 /**
@@ -280,7 +282,7 @@ function get_config_value($config_name)
 	{
 		$convert_config = get_config();
 	}
-	
+
 	if (!isset($convert_config[$config_name]))
 	{
 		return false;
@@ -422,7 +424,8 @@ function import_avatar_gallery($gallery_name = '', $subdirs_as_galleries = false
 
 	$relative_path = empty($convert->convertor['source_path_absolute']);
 
-	if (empty($convert->convertor['avatar_gallery_path']))
+	// check for trailing slash
+	if (rtrim($convert->convertor['avatar_gallery_path'], '/') === '')
 	{
 		$convert->p_master->error(sprintf($user->lang['CONV_ERROR_NO_GALLERY_PATH'], 'import_avatar_gallery()'), __LINE__, __FILE__);
 	}
@@ -551,7 +554,7 @@ function _import_check($config_var, $source, $use_target)
 	);
 
 	// copy file will prepend $phpBB_root_path
-	$target = $config[$config_var] . '/' . basename(($use_target === false) ? $source : $use_target);
+	$target = $config[$config_var] . '/' . utf8_basename(($use_target === false) ? $source : $use_target);
 
 	if (!empty($convert->convertor[$config_var]) && strpos($source, $convert->convertor[$config_var]) !== 0)
 	{
@@ -567,11 +570,11 @@ function _import_check($config_var, $source, $use_target)
 
 	if ($result['copied'])
 	{
-		$result['target'] = basename($target);
+		$result['target'] = utf8_basename($target);
 	}
 	else
 	{
-		$result['target'] = ($use_target !== false) ? $result['orig_source'] : basename($target);
+		$result['target'] = ($use_target !== false) ? $result['orig_source'] : utf8_basename($target);
 	}
 
 	return $result;
@@ -586,7 +589,8 @@ function import_attachment($source, $use_target = false)
 
 	global $convert, $phpbb_root_path, $config, $user;
 
-	if (empty($convert->convertor['upload_path']))
+	// check for trailing slash
+	if (rtrim($convert->convertor['upload_path'], '/') === '')
 	{
 		$convert->p_master->error(sprintf($user->lang['CONV_ERROR_NO_UPLOAD_DIR'], 'import_attachment()'), __LINE__, __FILE__);
 	}
@@ -600,7 +604,7 @@ function import_attachment($source, $use_target = false)
 		{
 			$thumb_dir = $convert->convertor['thumbnails'][0];
 			$thumb_prefix = $convert->convertor['thumbnails'][1];
-			$thumb_source = $thumb_dir . $thumb_prefix . basename($result['source']);
+			$thumb_source = $thumb_dir . $thumb_prefix . utf8_basename($result['source']);
 
 			if (strpos($thumb_source, $convert->convertor['upload_path']) !== 0)
 			{
@@ -645,7 +649,8 @@ function import_smiley($source, $use_target = false)
 
 	global $convert, $phpbb_root_path, $config, $user;
 
-	if (!isset($convert->convertor['smilies_path']))
+	// check for trailing slash
+	if (rtrim($convert->convertor['smilies_path'], '/') === '')
 	{
 		$convert->p_master->error(sprintf($user->lang['CONV_ERROR_NO_SMILIES_PATH'], 'import_smiley()'), __LINE__, __FILE__);
 	}
@@ -665,16 +670,17 @@ function import_avatar($source, $use_target = false, $user_id = false)
 
 	global $convert, $phpbb_root_path, $config, $user;
 
-	if (!isset($convert->convertor['avatar_path']))
+	// check for trailing slash
+	if (rtrim($convert->convertor['avatar_path'], '/') === '')
 	{
 		$convert->p_master->error(sprintf($user->lang['CONV_ERROR_NO_AVATAR_PATH'], 'import_avatar()'), __LINE__, __FILE__);
 	}
-	
+
 	if ($use_target === false && $user_id !== false)
 	{
 		$use_target = $config['avatar_salt'] . '_' . $user_id . '.' . substr(strrchr($source, '.'), 1);
 	}
-	
+
 	$result = _import_check('avatar_path', $source, $use_target);
 
 	return ((!empty($user_id)) ? $user_id : $use_target) . '.' . substr(strrchr($source, '.'), 1);
@@ -946,7 +952,7 @@ function get_remote_avatar_dim($src, $axis)
 		unset($remote_avatar_cache);
 		return $retval;
 	}
-	
+
 	$url_info = @parse_url($src);
 	if (empty($url_info['host']))
 	{
@@ -962,19 +968,19 @@ function get_remote_avatar_dim($src, $axis)
 			case 'ftp':
 				$port = 21;
 				break;
-				
+
 			case 'https':
 				$port = 443;
 				break;
-			
+
 			default:
 				$port = 80;
 		}
 	}
-	
+
 	$timeout = @ini_get('default_socket_timeout');
 	@ini_set('default_socket_timeout', 2);
-	
+
 	// We're just trying to reach the server to avoid timeouts
 	$fp = @fsockopen($host, $port, $errno, $errstr, 1);
 	if ($fp)
@@ -982,11 +988,11 @@ function get_remote_avatar_dim($src, $axis)
 		$remote_avatar_cache[$src] = @getimagesize($src);
 		fclose($fp);
 	}
-	
+
 	$default_x 	= (defined('DEFAULT_AVATAR_X_CUSTOM')) ? DEFAULT_AVATAR_X_CUSTOM : DEFAULT_AVATAR_X;
 	$default_y 	= (defined('DEFAULT_AVATAR_Y_CUSTOM')) ? DEFAULT_AVATAR_Y_CUSTOM : DEFAULT_AVATAR_Y;
 	$default 	= array($default_x, $default_y);
-	
+
 	if (empty($remote_avatar_cache[$src]) || empty($remote_avatar_cache[$src][0]) || empty($remote_avatar_cache[$src][1]))
 	{
 		$remote_avatar_cache[$src] = $default;
@@ -1002,7 +1008,7 @@ function get_remote_avatar_dim($src, $axis)
 			$remote_avatar_cache[$src][1] = (int)($remote_avatar_cache[$src][1] * $ratio);
 		}
 	}
-	
+
 	@ini_set('default_socket_timeout', $timeout);
 	return $remote_avatar_cache[$src][$axis];
 }
@@ -1023,6 +1029,9 @@ function set_user_options()
 		'bbcode'		=> array('bit' => 8, 'default' => 1),
 		'smilies'		=> array('bit' => 9, 'default' => 1),
 		'popuppm'		=> array('bit' => 10, 'default' => 0),
+		'sig_bbcode'	=> array('bit' => 15, 'default' => 1),
+		'sig_smilies'	=> array('bit' => 16, 'default' => 1),
+		'sig_links'		=> array('bit' => 17, 'default' => 1),
 	);
 
 	$option_field = 0;
@@ -1112,7 +1121,7 @@ function words_unique(&$words)
 function add_user_group($group_id, $user_id, $group_leader=false)
 {
 	global $convert, $phpbb_root_path, $config, $user, $db;
-	
+
 	$sql = 'INSERT INTO ' . USER_GROUP_TABLE . ' ' . $db->sql_build_array('INSERT', array(
 		'group_id'		=> $group_id,
 		'user_id'		=> $user_id,
@@ -1232,6 +1241,11 @@ function get_config()
 			$convert->p_master->error($user->lang['FILE_NOT_FOUND'] . ': ' . $filename, __LINE__, __FILE__);
 		}
 
+		if (isset($convert->config_schema['array_name']))
+		{
+			unset($convert->config_schema['array_name']);
+		}
+
 		$convert_config = extract_variables_from_file($filename);
 		if (!empty($convert->config_schema['array_name']))
 		{
@@ -1264,6 +1278,7 @@ function restore_config($schema)
 	global $db, $config;
 
 	$convert_config = get_config();
+
 	foreach ($schema['settings'] as $config_name => $src)
 	{
 		if (preg_match('/(.*)\((.*)\)/', $src, $m))
@@ -1274,15 +1289,23 @@ function restore_config($schema)
 		}
 		else
 		{
-			$config_value = (isset($convert_config[$src])) ? $convert_config[$src] : '';
-		}
+			if ($schema['table_format'] != 'file' || empty($schema['array_name']))
+			{
+				$config_value = (isset($convert_config[$src])) ? $convert_config[$src] : '';
+			}
+			else if (!empty($schema['array_name']))
+			{
+				$src_ary = $schema['array_name'];
+				$config_value = (isset($convert_config[$src_ary][$src])) ? $convert_config[$src_ary][$src] : '';
+			}
+   		}
 
 		if ($config_value !== '')
 		{
 			// Most are...
 			if (is_string($config_value))
 			{
-				$config_value = truncate_string(utf8_htmlspecialchars($config_value), 255, false);
+				$config_value = truncate_string(utf8_htmlspecialchars($config_value), 255, 255, false);
 			}
 
 			set_config($config_name, $config_value);
@@ -1629,6 +1652,7 @@ function mass_auth($ug_type, $forum_id, $ug_id, $acl_list, $setting = ACL_NO)
 
 					case 'mssql':
 					case 'sqlite':
+					case 'mssqlnative':
 						$sql = implode(' UNION ALL ', preg_replace('#^(.*?)$#', 'SELECT \1', $sql_subary));
 					break;
 
@@ -1698,7 +1722,8 @@ function add_default_groups()
 		'REGISTERED_COPPA'	=> array('', 0, 0),
 		'GLOBAL_MODERATORS'	=> array('00AA00', 1, 0),
 		'ADMINISTRATORS'	=> array('AA0000', 1, 1),
-		'BOTS'				=> array('9E8DA7', 0, 0)
+		'BOTS'				=> array('9E8DA7', 0, 0),
+		'NEWLY_REGISTERED'		=> array('', 0, 0),
 	);
 
 	$sql = 'SELECT *
@@ -1744,6 +1769,7 @@ function sync_post_count($offset, $limit)
 	$sql = 'SELECT COUNT(post_id) AS num_posts, poster_id
 			FROM ' . POSTS_TABLE . '
 			WHERE post_postcount = 1
+				AND post_approved = 1
 			GROUP BY poster_id
 			ORDER BY poster_id';
 	$result = $db->sql_query_limit($sql, $limit, $offset);
@@ -1794,6 +1820,7 @@ function add_bots()
 		'Alta Vista [Bot]'			=> array('Scooter/', ''),
 		'Ask Jeeves [Bot]'			=> array('Ask Jeeves', ''),
 		'Baidu [Spider]'			=> array('Baiduspider+(', ''),
+		'Bing [Bot]'				=> array('bingbot/', ''),
 		'Exabot [Bot]'				=> array('Exabot/', ''),
 		'FAST Enterprise [Crawler]'	=> array('FAST Enterprise Crawler', ''),
 		'FAST WebCrawler [Crawler]'	=> array('FAST-WebCrawler/', ''),
@@ -1951,7 +1978,7 @@ function update_dynamic_config()
 		FROM ' . ATTACHMENTS_TABLE . '
 		WHERE is_orphan = 0';
 	$result = $db->sql_query($sql);
-	set_config('upload_dir_size', (int) $db->sql_fetchfield('stat'), true);
+	set_config('upload_dir_size', (float) $db->sql_fetchfield('stat'), true);
 	$db->sql_freeresult($result);
 
 	/**
@@ -2255,7 +2282,7 @@ function copy_file($src, $trg, $overwrite = false, $die_on_failure = true, $sour
 
 	if (substr($trg, -1) == '/')
 	{
-		$trg .= basename($src);
+		$trg .= utf8_basename($src);
 	}
 	$src_path = relative_base($src, $source_relative_path, __LINE__, __FILE__);
 	$trg_path = $trg;
@@ -2284,7 +2311,7 @@ function copy_file($src, $trg, $overwrite = false, $die_on_failure = true, $sour
 		}
 	}
 
-	if (!is_writable($path))
+	if (!phpbb_is_writable($path))
 	{
 		@chmod($path, 0777);
 	}
@@ -2319,7 +2346,7 @@ function copy_dir($src, $trg, $copy_subdirs = true, $overwrite = false, $die_on_
 		@chmod($trg_path, 0777);
 	}
 
-	if (!@is_writable($trg_path))
+	if (!phpbb_is_writable($trg_path))
 	{
 		$bad_dirs[] = path($config['script_path']) . $trg;
 	}
@@ -2386,7 +2413,7 @@ function copy_dir($src, $trg, $copy_subdirs = true, $overwrite = false, $die_on_
 				@chmod($trg_path . $dir, 0777);
 			}
 
-			if (!@is_writable($trg_path . $dir))
+			if (!phpbb_is_writable($trg_path . $dir))
 			{
 				$bad_dirs[] = $trg . $dir;
 				$bad_dirs[] = $trg_path . $dir;
@@ -2443,7 +2470,7 @@ function get_smiley_display()
 function fill_dateformat($user_dateformat)
 {
 	global $config;
-	
+
 	return ((empty($user_dateformat)) ? $config['default_dateformat'] : $user_dateformat);
 }
 

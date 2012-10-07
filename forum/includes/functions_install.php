@@ -2,7 +2,7 @@
 /**
 *
 * @package install
-* @version $Id: functions_install.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2006 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -21,7 +21,20 @@ if (!defined('IN_PHPBB'))
 */
 function can_load_dll($dll)
 {
-	return ((@ini_get('enable_dl') || strtolower(@ini_get('enable_dl')) == 'on') && (!@ini_get('safe_mode') || strtolower(@ini_get('safe_mode')) == 'off') && @dl($dll . '.' . PHP_SHLIB_SUFFIX)) ? true : false;
+	// SQLite2 is a tricky thing, from 5.0.0 it requires PDO; if PDO is not loaded we must state that SQLite is unavailable
+	// as the installer doesn't understand that the extension has a prerequisite.
+	//
+	// On top of this sometimes the SQLite extension is compiled for a different version of PDO
+	// by some Linux distributions which causes phpBB to bomb out with a blank page.
+	//
+	// Net result we'll disable automatic inclusion of SQLite support
+	//
+	// See: r9618 and #56105
+	if ($dll == 'sqlite')
+	{
+		return false;
+	}
+	return ((@ini_get('enable_dl') || strtolower(@ini_get('enable_dl')) == 'on') && (!@ini_get('safe_mode') || strtolower(@ini_get('safe_mode')) == 'off') && function_exists('dl') && @dl($dll . '.' . PHP_SHLIB_SUFFIX)) ? true : false;
 }
 
 /**
@@ -82,6 +95,16 @@ function get_available_dbms($dbms = false, $return_unavailable = false, $only_20
 			'AVAILABLE'		=> true,
 			'2.0.x'			=> true,
 		),
+		'mssqlnative'		=> array(
+			'LABEL'			=> 'MS SQL Server 2005+ [ Native ]',
+			'SCHEMA'		=> 'mssql',
+			'MODULE'		=> 'sqlsrv',
+			'DELIM'			=> 'GO',
+			'COMMENTS'		=> 'remove_comments',
+			'DRIVER'		=> 'mssqlnative',
+			'AVAILABLE'		=> true,
+			'2.0.x'			=> false,
+		),			
 		'oracle'	=>	array(
 			'LABEL'			=> 'Oracle',
 			'SCHEMA'		=> 'oracle',
@@ -175,7 +198,7 @@ function get_available_dbms($dbms = false, $return_unavailable = false, $only_20
 function dbms_select($default = '', $only_20x_options = false)
 {
 	global $lang;
-	
+
 	$available_dbms = get_available_dbms(false, false, $only_20x_options);
 	$dbms_options = '';
 	foreach ($available_dbms as $dbms_name => $details)
@@ -188,60 +211,20 @@ function dbms_select($default = '', $only_20x_options = false)
 
 /**
 * Get tables of a database
+*
+* @deprecated
 */
-function get_tables($db)
+function get_tables(&$db)
 {
-	switch ($db->sql_layer)
+	if (!class_exists('phpbb_db_tools'))
 	{
-		case 'mysql':
-		case 'mysql4':
-		case 'mysqli':
-			$sql = 'SHOW TABLES';
-		break;
-
-		case 'sqlite':
-			$sql = 'SELECT name
-				FROM sqlite_master
-				WHERE type = "table"';
-		break;
-
-		case 'mssql':
-		case 'mssql_odbc':
-			$sql = "SELECT name
-				FROM sysobjects
-				WHERE type='U'";
-		break;
-
-		case 'postgres':
-			$sql = 'SELECT relname
-				FROM pg_stat_user_tables';
-		break;
-
-		case 'firebird':
-			$sql = 'SELECT rdb$relation_name
-				FROM rdb$relations
-				WHERE rdb$view_source is null
-					AND rdb$system_flag = 0';
-		break;
-
-		case 'oracle':
-			$sql = 'SELECT table_name
-				FROM USER_TABLES';
-		break;
+		global $phpbb_root_path, $phpEx;
+		require($phpbb_root_path . 'includes/db/db_tools.' . $phpEx);
 	}
 
-	$result = $db->sql_query($sql);
+	$db_tools = new phpbb_db_tools($db);
 
-	$tables = array();
-
-	while ($row = $db->sql_fetchrow($result))
-	{
-		$tables[] = current($row);
-	}
-
-	$db->sql_freeresult($result);
-
-	return $tables;
+	return $db_tools->sql_list_tables();
 }
 
 /**
@@ -286,7 +269,7 @@ function connect_check_db($error_connect, &$error, $dbms_details, $table_prefix,
 	{
 		case 'mysql':
 		case 'mysqli':
-			if (strpos($table_prefix, '-') !== false || strpos($table_prefix, '.') !== false)
+			if (strspn($table_prefix, '-./\\') !== 0)
 			{
 				$error[] = $lang['INST_ERR_PREFIX_INVALID'];
 				return false;
@@ -300,6 +283,7 @@ function connect_check_db($error_connect, &$error, $dbms_details, $table_prefix,
 
 		case 'mssql':
 		case 'mssql_odbc':
+		case 'mssqlnative':
 			$prefix_length = 90;
 		break;
 
@@ -396,10 +380,10 @@ function connect_check_db($error_connect, &$error, $dbms_details, $table_prefix,
 					}
 					else
 					{
-						$sql = "SELECT FIRST 0 char_length('')
-							FROM RDB\$DATABASE";
+						$sql = 'SELECT 1 FROM RDB$DATABASE
+							WHERE BIN_AND(10, 1) = 0';
 						$result = $db->sql_query($sql);
-						if (!$result) // This can only fail if char_length is not defined
+						if (!$result) // This can only fail if BIN_AND is not defined
 						{
 							$error[] = $lang['INST_ERR_DB_NO_FIREBIRD'];
 						}
@@ -440,7 +424,7 @@ function connect_check_db($error_connect, &$error, $dbms_details, $table_prefix,
 					unset($final);
 				}
 			break;
-			
+
 			case 'oracle':
 				if ($unicode_check)
 				{
@@ -462,7 +446,7 @@ function connect_check_db($error_connect, &$error, $dbms_details, $table_prefix,
 					}
 				}
 			break;
-			
+
 			case 'postgres':
 				if ($unicode_check)
 				{
@@ -489,11 +473,40 @@ function connect_check_db($error_connect, &$error, $dbms_details, $table_prefix,
 }
 
 /**
-* remove_remarks will strip the sql comment lines out of an uploaded sql file
+* Removes comments from schema files
+*
+* @deprecated		Use phpbb_remove_comments() instead.
 */
 function remove_remarks(&$sql)
 {
+	// Remove # style comments
 	$sql = preg_replace('/\n{2,}/', "\n", preg_replace('/^#.*$/m', "\n", $sql));
+
+	// Return by reference
+}
+
+/**
+* Removes "/* style" as well as "# style" comments from $input.
+*
+* @param string $input		Input string
+*
+* @return string			Input string with comments removed
+*/
+function phpbb_remove_comments($input)
+{
+	if (!function_exists('remove_comments'))
+	{
+		global $phpbb_root_path, $phpEx;
+		require($phpbb_root_path . 'includes/functions_admin.' . $phpEx);
+	}
+
+	// Remove /* */ comments
+	remove_comments($input);
+
+	// Remove # style comments
+	remove_remarks($input);
+
+	return $input;
 }
 
 /**
@@ -529,6 +542,56 @@ function adjust_language_keys_callback($matches)
 
 		return (!empty($lang[$matches[1]])) ? $db->sql_escape($lang[$matches[1]]) : $db->sql_escape($matches[1]);
 	}
+}
+
+/**
+* Creates the output to be stored in a phpBB config.php file
+*
+* @param	array	$data Array containing the database connection information
+* @param	string	$dbms The name of the DBAL class to use
+* @param	array	$load_extensions Array of additional extensions that should be loaded
+* @param	bool	$debug If the debug constants should be enabled by default or not
+*
+* @return	string	The output to write to the file
+*/
+function phpbb_create_config_file_data($data, $dbms, $load_extensions, $debug = false)
+{
+	$load_extensions = implode(',', $load_extensions);
+
+	$config_data = "<?php\n";
+	$config_data .= "// phpBB 3.0.x auto-generated configuration file\n// Do not change anything in this file!\n";
+
+	$config_data_array = array(
+		'dbms'			=> $dbms,
+		'dbhost'		=> $data['dbhost'],
+		'dbport'		=> $data['dbport'],
+		'dbname'		=> $data['dbname'],
+		'dbuser'		=> $data['dbuser'],
+		'dbpasswd'		=> htmlspecialchars_decode($data['dbpasswd']),
+		'table_prefix'	=> $data['table_prefix'],
+		'acm_type'		=> 'file',
+		'load_extensions'	=> $load_extensions,
+	);
+
+	foreach ($config_data_array as $key => $value)
+	{
+		$config_data .= "\${$key} = '" . str_replace("'", "\\'", str_replace('\\', '\\\\', $value)) . "';\n";
+	}
+
+	$config_data .= "\n@define('PHPBB_INSTALLED', true);\n";
+
+	if ($debug)
+	{
+		$config_data .= "@define('DEBUG', true);\n";
+		$config_data .= "@define('DEBUG_EXTRA', true);\n";
+	}
+	else
+	{
+		$config_data .= "// @define('DEBUG', true);\n";
+		$config_data .= "// @define('DEBUG_EXTRA', true);\n";
+	}
+
+	return $config_data;
 }
 
 ?>

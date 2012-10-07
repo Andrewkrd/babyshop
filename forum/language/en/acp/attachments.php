@@ -4,7 +4,7 @@
 * acp_attachments [English]
 *
 * @package language
-* @version $Id: attachments.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -57,9 +57,9 @@ $lang = array_merge($lang, array(
 	'ATTACH_EXT_GROUPS_URL'				=> 'Extension groups',
 	'ATTACH_ID'							=> 'ID',
 	'ATTACH_MAX_FILESIZE'				=> 'Maximum file size',
-	'ATTACH_MAX_FILESIZE_EXPLAIN'		=> 'Maximum size of each file, with 0 being unlimited.',
+	'ATTACH_MAX_FILESIZE_EXPLAIN'		=> 'Maximum size of each file. If this value is 0, the uploadable filesize is only limited by your PHP configuration.',
 	'ATTACH_MAX_PM_FILESIZE'			=> 'Maximum file size messaging',
-	'ATTACH_MAX_PM_FILESIZE_EXPLAIN'	=> 'Maximum drive space available per user for private message attachments, with 0 being unlimited.',
+	'ATTACH_MAX_PM_FILESIZE_EXPLAIN'	=> 'Maximum size of each file, with 0 being unlimited, attached to a private message.',
 	'ATTACH_ORPHAN_URL'					=> 'Orphan attachments',
 	'ATTACH_POST_ID'					=> 'Post ID',
 	'ATTACH_QUOTA'						=> 'Total attachment quota',
@@ -71,6 +71,8 @@ $lang = array_merge($lang, array(
 	'CAT_QUICKTIME_FILES'		=> 'Quicktime media files',
 	'CAT_RM_FILES'				=> 'RealMedia media files',
 	'CAT_WM_FILES'				=> 'Windows Media media files',
+	'CHECK_CONTENT'				=> 'Check attachment files',
+	'CHECK_CONTENT_EXPLAIN'		=> 'Some browsers can be tricked to assume an incorrect mimetype for uploaded files. This option ensures that such files likely to cause this are rejected.',
 	'CREATE_GROUP'				=> 'Create new group',
 	'CREATE_THUMBNAIL'			=> 'Create thumbnail',
 	'CREATE_THUMBNAIL_EXPLAIN'	=> 'Create a thumbnail in all possible situations.',
@@ -83,7 +85,7 @@ $lang = array_merge($lang, array(
 	'DISPLAY_INLINED_EXPLAIN'		=> 'If set to No image attachments will show as a link.',
 	'DISPLAY_ORDER'					=> 'Attachment display order',
 	'DISPLAY_ORDER_EXPLAIN'			=> 'Display attachments ordered by time.',
-	
+
 	'EDIT_EXTENSION_GROUP'			=> 'Edit extension group',
 	'EXCLUDE_ENTERED_IP'			=> 'Enable this to exclude the entered IP/hostname.',
 	'EXCLUDE_FROM_ALLOWED_IP'		=> 'Exclude IP from allowed IPs/hostnames',
@@ -95,6 +97,16 @@ $lang = array_merge($lang, array(
 	'EXTENSION_GROUP_DELETED'		=> 'Extension group successfully deleted.',
 	'EXTENSION_GROUP_EXIST'			=> 'The extension group %s already exists.',
 
+	'EXT_GROUP_ARCHIVES'			=> 'Archives',
+	'EXT_GROUP_DOCUMENTS'			=> 'Documents',
+	'EXT_GROUP_DOWNLOADABLE_FILES'	=> 'Downloadable Files',
+	'EXT_GROUP_FLASH_FILES'			=> 'Flash Files',
+	'EXT_GROUP_IMAGES'				=> 'Images',
+	'EXT_GROUP_PLAIN_TEXT'			=> 'Plain Text',
+	'EXT_GROUP_QUICKTIME_MEDIA'		=> 'Quicktime Media',
+	'EXT_GROUP_REAL_MEDIA'			=> 'Real Media',
+	'EXT_GROUP_WINDOWS_MEDIA'		=> 'Windows Media',
+
 	'GO_TO_EXTENSIONS'		=> 'Go to extension management screen',
 	'GROUP_NAME'			=> 'Group name',
 
@@ -103,8 +115,8 @@ $lang = array_merge($lang, array(
 	'IMAGICK_PATH'				=> 'Imagemagick path',
 	'IMAGICK_PATH_EXPLAIN'		=> 'Full path to the imagemagick convert application, e.g. <samp>/usr/bin/</samp>.',
 
-	'MAX_ATTACHMENTS'				=> 'Max attachments per post',
-	'MAX_ATTACHMENTS_PM'			=> 'Max attachments per message',
+	'MAX_ATTACHMENTS'				=> 'Maximum number of attachments per post',
+	'MAX_ATTACHMENTS_PM'			=> 'Maximum number of attachments per private message',
 	'MAX_EXTGROUP_FILESIZE'			=> 'Maximum file size',
 	'MAX_IMAGE_SIZE'				=> 'Maximum image dimensions',
 	'MAX_IMAGE_SIZE_EXPLAIN'		=> 'Maximum size of image attachments. Set both values to 0px by 0px to disable dimension checking.',

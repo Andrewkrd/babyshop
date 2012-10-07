@@ -2,7 +2,7 @@
 /**
 *
 * @package phpBB3
-* @version $Id: index.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -60,31 +60,45 @@ else
 }
 $result = $db->sql_query($sql);
 
-$legend = '';
+$legend = array();
 while ($row = $db->sql_fetchrow($result))
 {
 	$colour_text = ($row['group_colour']) ? ' style="color:#' . $row['group_colour'] . '"' : '';
+	$group_name = ($row['group_type'] == GROUP_SPECIAL) ? $user->lang['G_' . $row['group_name']] : $row['group_name'];
 
-	if ($row['group_name'] == 'BOTS')
+	if ($row['group_name'] == 'BOTS' || ($user->data['user_id'] != ANONYMOUS && !$auth->acl_get('u_viewprofile')))
 	{
-		$legend .= (($legend != '') ? ', ' : '') . '<span' . $colour_text . '>' . $user->lang['G_BOTS'] . '</span>';
+		$legend[] = '<span' . $colour_text . '>' . $group_name . '</span>';
 	}
 	else
 	{
-		$legend .= (($legend != '') ? ', ' : '') . '<a' . $colour_text . ' href="' . append_sid("{$phpbb_root_path}memberlist.$phpEx", 'mode=group&amp;g=' . $row['group_id']) . '">' . (($row['group_type'] == GROUP_SPECIAL) ? $user->lang['G_' . $row['group_name']] : $row['group_name']) . '</a>';
+		$legend[] = '<a' . $colour_text . ' href="' . append_sid("{$phpbb_root_path}memberlist.$phpEx", 'mode=group&amp;g=' . $row['group_id']) . '">' . $group_name . '</a>';
 	}
 }
 $db->sql_freeresult($result);
 
+$legend = implode(', ', $legend);
+
 // Generate birthday list if required ...
 $birthday_list = '';
-if ($config['load_birthdays'] && $config['allow_birthdays'])
+if ($config['load_birthdays'] && $config['allow_birthdays'] && $auth->acl_gets('u_viewprofile', 'a_user', 'a_useradd', 'a_userdel'))
 {
-	$now = getdate(time() + $user->timezone + $user->dst - date('Z'));
-	$sql = 'SELECT user_id, username, user_colour, user_birthday
-		FROM ' . USERS_TABLE . "
-		WHERE user_birthday LIKE '" . $db->sql_escape(sprintf('%2d-%2d-', $now['mday'], $now['mon'])) . "%'
-			AND user_type IN (" . USER_NORMAL . ', ' . USER_FOUNDER . ')';
+	$now = phpbb_gmgetdate(time() + $user->timezone + $user->dst);
+
+	// Display birthdays of 29th february on 28th february in non-leap-years
+	$leap_year_birthdays = '';
+	if ($now['mday'] == 28 && $now['mon'] == 2 && !$user->format_date(time(), 'L'))
+	{
+		$leap_year_birthdays = " OR u.user_birthday LIKE '" . $db->sql_escape(sprintf('%2d-%2d-', 29, 2)) . "%'";
+	}
+
+	$sql = 'SELECT u.user_id, u.username, u.user_colour, u.user_birthday
+		FROM ' . USERS_TABLE . ' u
+		LEFT JOIN ' . BANLIST_TABLE . " b ON (u.user_id = b.ban_userid)
+		WHERE (b.ban_id IS NULL
+			OR b.ban_exclude = 1)
+			AND (u.user_birthday LIKE '" . $db->sql_escape(sprintf('%2d-%2d-', $now['mday'], $now['mon'])) . "%' $leap_year_birthdays)
+			AND u.user_type IN (" . USER_NORMAL . ', ' . USER_FOUNDER . ')';
 	$result = $db->sql_query($sql);
 
 	while ($row = $db->sql_fetchrow($result))
@@ -93,7 +107,7 @@ if ($config['load_birthdays'] && $config['allow_birthdays'])
 
 		if ($age = (int) substr($row['user_birthday'], -4))
 		{
-			$birthday_list .= ' (' . ($now['year'] - $age) . ')';
+			$birthday_list .= ' (' . max(0, $now['year'] - $age) . ')';
 		}
 	}
 	$db->sql_freeresult($result);
@@ -109,15 +123,15 @@ $template->assign_vars(array(
 	'LEGEND'		=> $legend,
 	'BIRTHDAY_LIST'	=> $birthday_list,
 
-	'FORUM_IMG'				=> $user->img('forum_read', 'NO_NEW_POSTS'),
-	'FORUM_NEW_IMG'			=> $user->img('forum_unread', 'NEW_POSTS'),
-	'FORUM_LOCKED_IMG'		=> $user->img('forum_read_locked', 'NO_NEW_POSTS_LOCKED'),
-	'FORUM_NEW_LOCKED_IMG'	=> $user->img('forum_unread_locked', 'NO_NEW_POSTS_LOCKED'),
+	'FORUM_IMG'				=> $user->img('forum_read', 'NO_UNREAD_POSTS'),
+	'FORUM_UNREAD_IMG'			=> $user->img('forum_unread', 'UNREAD_POSTS'),
+	'FORUM_LOCKED_IMG'		=> $user->img('forum_read_locked', 'NO_UNREAD_POSTS_LOCKED'),
+	'FORUM_UNREAD_LOCKED_IMG'	=> $user->img('forum_unread_locked', 'UNREAD_POSTS_LOCKED'),
 
 	'S_LOGIN_ACTION'			=> append_sid("{$phpbb_root_path}ucp.$phpEx", 'mode=login'),
 	'S_DISPLAY_BIRTHDAY_LIST'	=> ($config['load_birthdays']) ? true : false,
 
-	'U_MARK_FORUMS'		=> ($user->data['is_registered'] || $config['load_anon_lastread']) ? append_sid("{$phpbb_root_path}index.$phpEx", 'mark=forums') : '',
+	'U_MARK_FORUMS'		=> ($user->data['is_registered'] || $config['load_anon_lastread']) ? append_sid("{$phpbb_root_path}index.$phpEx", 'hash=' . generate_link_hash('global') . '&amp;mark=forums') : '',
 	'U_MCP'				=> ($auth->acl_get('m_') || $auth->acl_getf_global('m_')) ? append_sid("{$phpbb_root_path}mcp.$phpEx", 'i=main&amp;mode=front', true, $user->session_id) : '')
 );
 

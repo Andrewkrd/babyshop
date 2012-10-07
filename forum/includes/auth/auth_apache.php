@@ -5,7 +5,7 @@
 * Authentication plug-ins is largely down to Sergey Kanareykin, our thanks to him.
 *
 * @package login
-* @version $Id: auth_apache.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -104,7 +104,7 @@ function login_apache(&$username, &$password)
 					'user_row'		=> $row,
 				);
 			}
-	
+
 			// Successful login...
 			return array(
 				'status'		=> LOGIN_SUCCESS,
@@ -148,8 +148,8 @@ function autologin_apache()
 
 	if (!empty($php_auth_user) && !empty($php_auth_pw))
 	{
-		set_var($php_auth_user, $php_auth_user, 'string');
-		set_var($php_auth_pw, $php_auth_pw, 'string');
+		set_var($php_auth_user, $php_auth_user, 'string', true);
+		set_var($php_auth_pw, $php_auth_pw, 'string', true);
 
 		$sql = 'SELECT *
 			FROM ' . USERS_TABLE . "
@@ -217,6 +217,7 @@ function user_row_apache($username, $password)
 		'group_id'		=> (int) $row['group_id'],
 		'user_type'		=> USER_NORMAL,
 		'user_ip'		=> $user->ip,
+		'user_new'		=> ($config['new_member_post_limit']) ? 1 : 0,
 	);
 }
 
@@ -227,15 +228,22 @@ function user_row_apache($username, $password)
 */
 function validate_session_apache(&$user)
 {
-	if (!isset($_SERVER['PHP_AUTH_USER']))
+	// Check if PHP_AUTH_USER is set and handle this case
+	if (isset($_SERVER['PHP_AUTH_USER']))
 	{
-		return false;
+		$php_auth_user = '';
+		set_var($php_auth_user, $_SERVER['PHP_AUTH_USER'], 'string', true);
+
+		return ($php_auth_user === $user['username']) ? true : false;
 	}
 
-	$php_auth_user = '';
-	set_var($php_auth_user, $_SERVER['PHP_AUTH_USER'], 'string');
+	// PHP_AUTH_USER is not set. A valid session is now determined by the user type (anonymous/bot or not)
+	if ($user['user_type'] == USER_IGNORE)
+	{
+		return true;
+	}
 
-	return ($php_auth_user === $user['username']) ? true : false;
+	return false;
 }
 
 ?>

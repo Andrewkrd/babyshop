@@ -1,4 +1,4 @@
-/* proSilver Style Sheet Tweaks
+/* Style Sheet Tweaks
 
 These style definitions are mainly IE specific 
 tweaks required due to its poor CSS support.
@@ -67,6 +67,11 @@ dl.icon {
 	height: 35px;
 }
 
+* html li.row dl.icon dt {
+	height: 35px;
+	overflow: visible;
+}
+
 * html #search-box {
 	width: 25%;
 }
@@ -82,3 +87,21 @@ dl.icon {
 	float: none;
 }
 
+/* Headerbar height fix for IE7 and below */
+* html #site-description p {
+	margin-bottom: 1.0em;
+}
+
+*:first-child+html #site-description p {
+	margin-bottom: 1.0em;
+}
+
+/* #minitabs fix for IE */
+.tabs-container {
+	zoom: 1;
+}
+
+#minitabs {
+	white-space: nowrap;
+	*min-width: 50%;
+}

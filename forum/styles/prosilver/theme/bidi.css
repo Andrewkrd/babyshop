@@ -1,4 +1,4 @@
-/* proSilver RTL definitions
+/* RTL definitions
 ---------------------------------------- */
 
 /**
@@ -225,18 +225,49 @@
 	text-align: left;
 }
 
+/* Links adjustment to correctly display an order of rtl/ltr mixed content */
+.rtl a {
+	direction: rtl;
+	unicode-bidi: embed;
+}
+
 .rtl a.top {
 	float: left;
 }
 
 .rtl a.top2 {
+	background-position: 100% 50%;
 	padding-left: 0;
 	padding-right: 15px;
+}
+
+.rtl .skiplink {
+	/* invisible skip link, used for accessibility  */
+	position: relative;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	display: block;
+	left: 0;
+}
+
+.rtl a.feed-icon-forum {
+	float: left;
 }
 
 /**
 * content.css
 */
+.rtl ul.topiclist dfn {
+	/* Labels for post/view counts */
+	position: relative;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	display: block;
+	left: 0;
+}
+
 .rtl ul.topiclist dt {
 	float: right;
 }
@@ -253,8 +284,8 @@
 }
 
 .rtl ul.topiclist li.row dt a.subforum {
-	padding: 0 0 0 12px;
-	background-position: 100% 100%;
+	padding-right: 12px;
+	background-position: right;
 	position: static;
 }
 
@@ -347,11 +378,12 @@
 /* Quote block */
 .rtl blockquote {
 	margin: 0.5em 25px 0 1px;
+	background-position: 99% 8px;
 }
 
 .rtl blockquote blockquote {
 	/* Nested quotes */
-	margin: 0.5em 15px 0 1px;	
+	margin: 0.5em 15px 0 1px;
 }
 
 .rtl blockquote cite {
@@ -487,7 +519,7 @@
 /**
 * cp.css
 */
-/* proSilver Control Panel Styles
+/* Control Panel Styles
 ---------------------------------------- */
 
 
@@ -558,6 +590,19 @@
 
 /* PM Styles
 ----------------------------------------*/
+
+/* PM panel adjustments */
+.rtl .reply-all a.right {
+	background-position: 5% 60%;
+}
+
+.rtl .reply-all a.right:hover {
+	background-position: 3% 60%;
+}
+
+.rtl .reply-all {
+	padding-left: 5px;
+}
 
 /* Defined rules list for PM options */
 .rtl ol.def-rules {
@@ -719,4 +764,7 @@
 * tweaks.css
 */
 
-
+/** Reference: Bug #27155 */
+.rtl #wrap, .rtl .headerbar, .rtl #site-description, .rtl .navbar {
+	position: relative;
+}

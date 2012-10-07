@@ -2,7 +2,7 @@
 /**
 *
 * @package phpBB3
-* @version $Id: session.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -68,12 +68,12 @@ class session
 
 		foreach ($args as $key => $argument)
 		{
-			if (strpos($argument, 'sid=') === 0 || strpos($argument, '_f_=') === 0)
+			if (strpos($argument, 'sid=') === 0)
 			{
 				continue;
 			}
 
-			$use_args[str_replace($find, $replace, $key)] = str_replace($find, $replace, $argument);
+			$use_args[] = str_replace($find, $replace, $argument);
 		}
 		unset($args);
 
@@ -83,7 +83,7 @@ class session
 		$query_string = trim(implode('&', $use_args));
 
 		// basenamed page name (for example: index.php)
-		$page_name = basename($script_name);
+		$page_name = (substr($script_name, -1, 1) == '/') ? '' : basename($script_name);
 		$page_name = urlencode(htmlspecialchars($page_name));
 
 		// current directory within the phpBB root (for example: adm)
@@ -137,6 +137,60 @@ class session
 	}
 
 	/**
+	* Get valid hostname/port. HTTP_HOST is used, SERVER_NAME if HTTP_HOST not present.
+	*/
+	function extract_current_hostname()
+	{
+		global $config;
+
+		// Get hostname
+		$host = (!empty($_SERVER['HTTP_HOST'])) ? $_SERVER['HTTP_HOST'] : ((!empty($_SERVER['SERVER_NAME'])) ? $_SERVER['SERVER_NAME'] : getenv('SERVER_NAME'));
+
+		// Should be a string and lowered
+		$host = (string) strtolower($host);
+
+		// If host is equal the cookie domain or the server name (if config is set), then we assume it is valid
+		if ((isset($config['cookie_domain']) && $host === $config['cookie_domain']) || (isset($config['server_name']) && $host === $config['server_name']))
+		{
+			return $host;
+		}
+
+		// Is the host actually a IP? If so, we use the IP... (IPv4)
+		if (long2ip(ip2long($host)) === $host)
+		{
+			return $host;
+		}
+
+		// Now return the hostname (this also removes any port definition). The http:// is prepended to construct a valid URL, hosts never have a scheme assigned
+		$host = @parse_url('http://' . $host);
+		$host = (!empty($host['host'])) ? $host['host'] : '';
+
+		// Remove any portions not removed by parse_url (#)
+		$host = str_replace('#', '', $host);
+
+		// If, by any means, the host is now empty, we will use a "best approach" way to guess one
+		if (empty($host))
+		{
+			if (!empty($config['server_name']))
+			{
+				$host = $config['server_name'];
+			}
+			else if (!empty($config['cookie_domain']))
+			{
+				$host = (strpos($config['cookie_domain'], '.') === 0) ? substr($config['cookie_domain'], 1) : $config['cookie_domain'];
+			}
+			else
+			{
+				// Set to OS hostname or localhost
+				$host = (function_exists('php_uname')) ? php_uname('n') : 'localhost';
+			}
+		}
+
+		// It may be still no valid host, but for sure only a hostname (we may further expand on the cookie domain... if set)
+		return $host;
+	}
+
+	/**
 	* Start session management
 	*
 	* This is where all session activity begins. We gather various pieces of
@@ -158,17 +212,19 @@ class session
 		$this->cookie_data			= array('u' => 0, 'k' => '');
 		$this->update_session_page	= $update_session_page;
 		$this->browser				= (!empty($_SERVER['HTTP_USER_AGENT'])) ? htmlspecialchars((string) $_SERVER['HTTP_USER_AGENT']) : '';
-		$this->forwarded_for		= (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) ? (string) $_SERVER['HTTP_X_FORWARDED_FOR'] : '';
-		$this->host					= (!empty($_SERVER['HTTP_HOST'])) ? (string) strtolower($_SERVER['HTTP_HOST']) : ((!empty($_SERVER['SERVER_NAME'])) ? $_SERVER['SERVER_NAME'] : getenv('SERVER_NAME'));
+		$this->referer				= (!empty($_SERVER['HTTP_REFERER'])) ? htmlspecialchars((string) $_SERVER['HTTP_REFERER']) : '';
+		$this->forwarded_for		= (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) ? htmlspecialchars((string) $_SERVER['HTTP_X_FORWARDED_FOR']) : '';
+
+		$this->host					= $this->extract_current_hostname();
 		$this->page					= $this->extract_current_page($phpbb_root_path);
 
 		// if the forwarded for header shall be checked we have to validate its contents
 		if ($config['forwarded_for_check'])
 		{
-			$this->forwarded_for = preg_replace('#, +#', ', ', $this->forwarded_for);
+			$this->forwarded_for = preg_replace('# {2,}#', ' ', str_replace(',', ' ', $this->forwarded_for));
 
 			// split the list of IPs
-			$ips = explode(', ', $this->forwarded_for);
+			$ips = explode(' ', $this->forwarded_for);
 			foreach ($ips as $ip)
 			{
 				// check IPv4 first, the IPv6 is hopefully only going to be used very seldomly
@@ -211,15 +267,52 @@ class session
 
 		// Why no forwarded_for et al? Well, too easily spoofed. With the results of my recent requests
 		// it's pretty clear that in the majority of cases you'll at least be left with a proxy/cache ip.
-		$this->ip = (!empty($_SERVER['REMOTE_ADDR'])) ? htmlspecialchars($_SERVER['REMOTE_ADDR']) : '';
+		$this->ip = (!empty($_SERVER['REMOTE_ADDR'])) ? (string) $_SERVER['REMOTE_ADDR'] : '';
+		$this->ip = preg_replace('# {2,}#', ' ', str_replace(',', ' ', $this->ip));
+
+		// split the list of IPs
+		$ips = explode(' ', trim($this->ip));
+
+		// Default IP if REMOTE_ADDR is invalid
+		$this->ip = '127.0.0.1';
+
+		foreach ($ips as $ip)
+		{
+			if (preg_match(get_preg_expression('ipv4'), $ip))
+			{
+				$this->ip = $ip;
+			}
+			else if (preg_match(get_preg_expression('ipv6'), $ip))
+			{
+				// Quick check for IPv4-mapped address in IPv6
+				if (stripos($ip, '::ffff:') === 0)
+				{
+					$ipv4 = substr($ip, 7);
+
+					if (preg_match(get_preg_expression('ipv4'), $ipv4))
+					{
+						$ip = $ipv4;
+					}
+				}
+
+				$this->ip = $ip;
+			}
+			else
+			{
+				// We want to use the last valid address in the chain
+				// Leave foreach loop when address is invalid
+				break;
+			}
+		}
+
 		$this->load = false;
 
 		// Load limit check (if applicable)
 		if ($config['limit_load'] || $config['limit_search_load'])
 		{
-			if ($load = @file_get_contents('/proc/loadavg'))
+			if ((function_exists('sys_getloadavg') && $load = sys_getloadavg()) || ($load = explode(' ', @file_get_contents('/proc/loadavg'))))
 			{
-				$this->load = array_slice(explode(' ', $load), 0, 1);
+				$this->load = array_slice($load, 0, 1);
 				$this->load = floatval($this->load[0]);
 			}
 			else
@@ -229,8 +322,15 @@ class session
 			}
 		}
 
-		// Is session_id is set or session_id is set and matches the url param if required
-		if (!empty($this->session_id) && (!defined('NEED_SID') || (isset($_GET['sid']) && $this->session_id === $_GET['sid'])))
+		// if no session id is set, redirect to index.php
+		if (defined('NEED_SID') && (!isset($_GET['sid']) || $this->session_id !== $_GET['sid']))
+		{
+			send_status_line(401, 'Not authorized');
+			redirect(append_sid("{$phpbb_root_path}index.$phpEx"));
+		}
+
+		// if session id is set
+		if (!empty($this->session_id))
 		{
 			$sql = 'SELECT u.*, s.*
 				FROM ' . SESSIONS_TABLE . ' s, ' . USERS_TABLE . " u
@@ -264,7 +364,18 @@ class session
 				$s_forwarded_for = ($config['forwarded_for_check']) ? substr($this->data['session_forwarded_for'], 0, 254) : '';
 				$u_forwarded_for = ($config['forwarded_for_check']) ? substr($this->forwarded_for, 0, 254) : '';
 
-				if ($u_ip === $s_ip && $s_browser === $u_browser && $s_forwarded_for === $u_forwarded_for)
+				// referer checks
+				// The @ before $config['referer_validation'] suppresses notices present while running the updater
+				$check_referer_path = (@$config['referer_validation'] == REFERER_VALIDATE_PATH);
+				$referer_valid = true;
+
+				// we assume HEAD and TRACE to be foul play and thus only whitelist GET
+				if (@$config['referer_validation'] && isset($_SERVER['REQUEST_METHOD']) && strtolower($_SERVER['REQUEST_METHOD']) !== 'get')
+				{
+					$referer_valid = $this->validate_referer($check_referer_path);
+				}
+
+				if ($u_ip === $s_ip && $s_browser === $u_browser && $s_forwarded_for === $u_forwarded_for && $referer_valid)
 				{
 					$session_expired = false;
 
@@ -329,6 +440,11 @@ class session
 									WHERE session_id = '" . $db->sql_escape($this->session_id) . "'";
 								$db->sql_query($sql);
 							}
+
+							if ($this->data['user_id'] != ANONYMOUS && !empty($config['new_member_post_limit']) && $this->data['user_new'] && $config['new_member_post_limit'] <= $this->data['user_posts'])
+							{
+								$this->leave_newly_registered();
+							}
 						}
 
 						$this->data['is_registered'] = ($this->data['user_id'] != ANONYMOUS && ($this->data['user_type'] == USER_NORMAL || $this->data['user_type'] == USER_FOUNDER)) ? true : false;
@@ -343,7 +459,14 @@ class session
 					// Added logging temporarly to help debug bugs...
 					if (defined('DEBUG_EXTRA') && $this->data['user_id'] != ANONYMOUS)
 					{
-						add_log('critical', 'LOG_IP_BROWSER_FORWARDED_CHECK', $u_ip, $s_ip, $u_browser, $s_browser, htmlspecialchars($u_forwarded_for), htmlspecialchars($s_forwarded_for));
+						if ($referer_valid)
+						{
+							add_log('critical', 'LOG_IP_BROWSER_FORWARDED_CHECK', $u_ip, $s_ip, $u_browser, $s_browser, htmlspecialchars($u_forwarded_for), htmlspecialchars($s_forwarded_for));
+						}
+						else
+						{
+							add_log('critical', 'LOG_REFERER_INVALID', $this->referer);
+						}
 					}
 				}
 			}
@@ -406,6 +529,13 @@ class session
 
 				foreach (explode(',', $row['bot_ip']) as $bot_ip)
 				{
+					$bot_ip = trim($bot_ip);
+
+					if (!$bot_ip)
+					{
+						continue;
+					}
+
 					if (strpos($this->ip, $bot_ip) === 0)
 					{
 						$bot = (int) $row['user_id'];
@@ -465,6 +595,14 @@ class session
 			$bot = false;
 		}
 
+		// Bot user, if they have a SID in the Request URI we need to get rid of it
+		// otherwise they'll index this page with the SID, duplicate content oh my!
+		if ($bot && isset($_GET['sid']))
+		{
+			send_status_line(301, 'Moved Permanently');
+			redirect(build_url(array('sid')));
+		}
+
 		// If no data was returned one or more of the following occurred:
 		// Key didn't match one in the DB
 		// User does not exist
@@ -520,7 +658,7 @@ class session
 			}
 			else
 			{
-				$ips = explode(', ', $this->forwarded_for);
+				$ips = explode(' ', $this->forwarded_for);
 				$ips[] = $this->ip;
 				$this->check_ban($this->data['user_id'], $ips);
 			}
@@ -635,7 +773,7 @@ class session
 
 				if ((int) $row['sessions'] > (int) $config['active_sessions'])
 				{
-					header('HTTP/1.1 503 Service Unavailable');
+					send_status_line(503, 'Service Unavailable');
 					trigger_error('BOARD_UNAVAILABLE');
 				}
 			}
@@ -644,6 +782,15 @@ class session
 		// Since we re-create the session id here, the inserted row must be unique. Therefore, we display potential errors.
 		// Commented out because it will not allow forums to update correctly
 //		$db->sql_return_on_error(false);
+
+		// Something quite important: session_page always holds the *last* page visited, except for the *first* visit.
+		// We are not able to simply have an empty session_page btw, therefore we need to tell phpBB how to detect this special case.
+		// If the session id is empty, we have a completely new one and will set an "identifier" here. This identifier is able to be checked later.
+		if (empty($this->data['session_id']))
+		{
+			// This is a temporary variable, only set for the very first visit
+			$this->data['session_created'] = true;
+		}
 
 		$this->session_id = $this->data['session_id'] = md5(unique_id());
 
@@ -801,7 +948,7 @@ class session
 	*/
 	function session_gc()
 	{
-		global $db, $config;
+		global $db, $config, $phpbb_root_path, $phpEx;
 
 		$batch_size = 10;
 
@@ -859,42 +1006,21 @@ class session
 					WHERE last_login < ' . (time() - (86400 * (int) $config['max_autologin_time']));
 				$db->sql_query($sql);
 			}
-			$this->confirm_gc();
+
+			// only called from CRON; should be a safe workaround until the infrastructure gets going
+			if (!class_exists('phpbb_captcha_factory'))
+			{
+				include($phpbb_root_path . "includes/captcha/captcha_factory." . $phpEx);
+			}
+			phpbb_captcha_factory::garbage_collect($config['captcha_plugin']);
+
+			$sql = 'DELETE FROM ' . LOGIN_ATTEMPT_TABLE . '
+				WHERE attempt_time < ' . (time() - (int) $config['ip_login_limit_time']);
+			$db->sql_query($sql);
 		}
 
 		return;
 	}
-
-	function confirm_gc($type = 0)
-	{
-		global $db, $config;
-
-		$sql = 'SELECT DISTINCT c.session_id
-				FROM ' . CONFIRM_TABLE . ' c
-				LEFT JOIN ' . SESSIONS_TABLE . ' s ON (c.session_id = s.session_id)
-				WHERE s.session_id IS NULL' .
-					((empty($type)) ? '' : ' AND c.confirm_type = ' . (int) $type);
-		$result = $db->sql_query($sql);
-
-		if ($row = $db->sql_fetchrow($result))
-		{
-			$sql_in = array();
-			do
-			{
-				$sql_in[] = (string) $row['session_id'];
-			}
-			while ($row = $db->sql_fetchrow($result));
-
-			if (sizeof($sql_in))
-			{
-				$sql = 'DELETE FROM ' . CONFIRM_TABLE . '
-					WHERE ' . $db->sql_in_set('session_id', $sql_in);
-				$db->sql_query($sql);
-			}
-		}
-		$db->sql_freeresult($result);
-	}
-
 
 	/**
 	* Sets a cookie
@@ -1098,10 +1224,18 @@ class session
 			// To circumvent session_begin returning a valid value and the check_ban() not called on second page view, we kill the session again
 			$this->session_kill(false);
 
+			// A very special case... we are within the cron script which is not supposed to print out the ban message... show blank page
+			if (defined('IN_CRON'))
+			{
+				garbage_collection();
+				exit_handler();
+				exit;
+			}
+
 			trigger_error($message);
 		}
 
-		return ($banned) ? true : false;
+		return ($banned && $ban_row['ban_give_reason']) ? $ban_row['ban_give_reason'] : $banned;
 	}
 
 	/**
@@ -1121,9 +1255,14 @@ class session
 			$ip = $this->ip;
 		}
 
+		// Neither Spamhaus nor Spamcop supports IPv6 addresses.
+		if (strpos($ip, ':') !== false)
+		{
+			return false;
+		}
+
 		$dnsbl_check = array(
-			'list.dsbl.org'			=> 'http://dsbl.org/listing?',
-			'sbl-xbl.spamhaus.org'	=> 'http://www.spamhaus.org/query/bl?ip=',
+			'sbl.spamhaus.org'	=> 'http://www.spamhaus.org/query/bl?ip=',
 		);
 
 		if ($mode == 'register')
@@ -1257,16 +1396,33 @@ class session
 	{
 		global $config, $db;
 
-		$user_id = ($user_id === false) ? $this->data['user_id'] : $user_id;
+		$user_id = ($user_id === false) ? (int) $this->data['user_id'] : (int) $user_id;
 
 		$sql = 'DELETE FROM ' . SESSIONS_KEYS_TABLE . '
 			WHERE user_id = ' . (int) $user_id;
 		$db->sql_query($sql);
 
+		// If the user is logged in, update last visit info first before deleting sessions
+		$sql = 'SELECT session_time, session_page
+			FROM ' . SESSIONS_TABLE . '
+			WHERE session_user_id = ' . (int) $user_id . '
+			ORDER BY session_time DESC';
+		$result = $db->sql_query_limit($sql, 1);
+		$row = $db->sql_fetchrow($result);
+		$db->sql_freeresult($result);
+
+		if ($row)
+		{
+			$sql = 'UPDATE ' . USERS_TABLE . '
+				SET user_lastvisit = ' . (int) $row['session_time'] . ", user_lastpage = '" . $db->sql_escape($row['session_page']) . "'
+				WHERE user_id = " . (int) $user_id;
+			$db->sql_query($sql);
+		}
+
 		// Let's also clear any current sessions for the specified user_id
 		// If it's the current user then we'll leave this session intact
 		$sql_where = 'session_user_id = ' . (int) $user_id;
-		$sql_where .= ($user_id === $this->data['user_id']) ? " AND session_id <> '" . $db->sql_escape($this->session_id) . "'" : '';
+		$sql_where .= ($user_id === (int) $this->data['user_id']) ? " AND session_id <> '" . $db->sql_escape($this->session_id) . "'" : '';
 
 		$sql = 'DELETE FROM ' . SESSIONS_TABLE . "
 			WHERE $sql_where";
@@ -1274,10 +1430,61 @@ class session
 
 		// We're changing the password of the current user and they have a key
 		// Lets regenerate it to be safe
-		if ($user_id === $this->data['user_id'] && $this->cookie_data['k'])
+		if ($user_id === (int) $this->data['user_id'] && $this->cookie_data['k'])
 		{
 			$this->set_login_key($user_id);
 		}
+	}
+
+
+	/**
+	* Check if the request originated from the same page.
+	* @param bool $check_script_path If true, the path will be checked as well
+	*/
+	function validate_referer($check_script_path = false)
+	{
+		global $config;
+
+		// no referer - nothing to validate, user's fault for turning it off (we only check on POST; so meta can't be the reason)
+		if (empty($this->referer) || empty($this->host))
+		{
+			return true;
+		}
+
+		$host = htmlspecialchars($this->host);
+		$ref = substr($this->referer, strpos($this->referer, '://') + 3);
+
+		if (!(stripos($ref, $host) === 0) && (!$config['force_server_vars'] || !(stripos($ref, $config['server_name']) === 0)))
+		{
+			return false;
+		}
+		else if ($check_script_path && rtrim($this->page['root_script_path'], '/') !== '')
+		{
+			$ref = substr($ref, strlen($host));
+			$server_port = (!empty($_SERVER['SERVER_PORT'])) ? (int) $_SERVER['SERVER_PORT'] : (int) getenv('SERVER_PORT');
+
+			if ($server_port !== 80 && $server_port !== 443 && stripos($ref, ":$server_port") === 0)
+			{
+				$ref = substr($ref, strlen(":$server_port"));
+			}
+
+			if (!(stripos(rtrim($ref, '/'), rtrim($this->page['root_script_path'], '/')) === 0))
+			{
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+
+	function unset_admin()
+	{
+		global $db;
+		$sql = 'UPDATE ' . SESSIONS_TABLE . '
+			SET session_admin = 0
+			WHERE session_id = \'' . $db->sql_escape($this->session_id) . '\'';
+		$db->sql_query($sql);
 	}
 }
 
@@ -1299,15 +1506,40 @@ class user extends session
 	var $timezone;
 	var $dst;
 
-	var $lang_name;
+	var $lang_name = false;
 	var $lang_id = false;
 	var $lang_path;
 	var $img_lang;
 	var $img_array = array();
 
-	// Able to add new option (id 7)
-	var $keyoptions = array('viewimg' => 0, 'viewflash' => 1, 'viewsmilies' => 2, 'viewsigs' => 3, 'viewavatars' => 4, 'viewcensors' => 5, 'attachsig' => 6, 'bbcode' => 8, 'smilies' => 9, 'popuppm' => 10);
-	var $keyvalues = array();
+	// Able to add new options (up to id 31)
+	var $keyoptions = array('viewimg' => 0, 'viewflash' => 1, 'viewsmilies' => 2, 'viewsigs' => 3, 'viewavatars' => 4, 'viewcensors' => 5, 'attachsig' => 6, 'bbcode' => 8, 'smilies' => 9, 'popuppm' => 10, 'sig_bbcode' => 15, 'sig_smilies' => 16, 'sig_links' => 17);
+
+	/**
+	* Constructor to set the lang path
+	*/
+	function user()
+	{
+		global $phpbb_root_path;
+
+		$this->lang_path = $phpbb_root_path . 'language/';
+	}
+
+	/**
+	* Function to set custom language path (able to use directory outside of phpBB)
+	*
+	* @param string $lang_path New language path used.
+	* @access public
+	*/
+	function set_custom_lang_path($lang_path)
+	{
+		$this->lang_path = $lang_path;
+
+		if (substr($this->lang_path, -1) != '/')
+		{
+			$this->lang_path .= '/';
+		}
+	}
 
 	/**
 	* Setup basic user-specific items (style, language, ...)
@@ -1318,8 +1550,7 @@ class user extends session
 
 		if ($this->data['user_id'] != ANONYMOUS)
 		{
-			$this->lang_name = (file_exists($phpbb_root_path . 'language/' . $this->data['user_lang'] . "/common.$phpEx")) ? $this->data['user_lang'] : basename($config['default_lang']);
-			$this->lang_path = $phpbb_root_path . 'language/' . $this->lang_name . '/';
+			$this->lang_name = (file_exists($this->lang_path . $this->data['user_lang'] . "/common.$phpEx")) ? $this->data['user_lang'] : basename($config['default_lang']);
 
 			$this->date_format = $this->data['user_dateformat'];
 			$this->timezone = $this->data['user_timezone'] * 3600;
@@ -1328,7 +1559,6 @@ class user extends session
 		else
 		{
 			$this->lang_name = basename($config['default_lang']);
-			$this->lang_path = $phpbb_root_path . 'language/' . $this->lang_name . '/';
 			$this->date_format = $config['default_dateformat'];
 			$this->timezone = $config['board_timezone'] * 3600;
 			$this->dst = $config['board_dst'] * 3600;
@@ -1348,10 +1578,9 @@ class user extends session
 					$accept_lang = substr($accept_lang, 0, 2) . '_' . strtoupper(substr($accept_lang, 3, 2));
 					$accept_lang = basename($accept_lang);
 
-					if (file_exists($phpbb_root_path . 'language/' . $accept_lang . "/common.$phpEx"))
+					if (file_exists($this->lang_path . $accept_lang . "/common.$phpEx"))
 					{
 						$this->lang_name = $config['default_lang'] = $accept_lang;
-						$this->lang_path = $phpbb_root_path . 'language/' . $accept_lang . '/';
 						break;
 					}
 					else
@@ -1360,10 +1589,9 @@ class user extends session
 						$accept_lang = substr($accept_lang, 0, 2);
 						$accept_lang = basename($accept_lang);
 
-						if (file_exists($phpbb_root_path . 'language/' . $accept_lang . "/common.$phpEx"))
+						if (file_exists($this->lang_path . $accept_lang . "/common.$phpEx"))
 						{
 							$this->lang_name = $config['default_lang'] = $accept_lang;
-							$this->lang_path = $phpbb_root_path . 'language/' . $accept_lang . '/';
 							break;
 						}
 					}
@@ -1375,15 +1603,18 @@ class user extends session
 		// We include common language file here to not load it every time a custom language file is included
 		$lang = &$this->lang;
 
-		if ((@include $this->lang_path . "common.$phpEx") === false)
+		// Do not suppress error if in DEBUG_EXTRA mode
+		$include_result = (defined('DEBUG_EXTRA')) ? (include $this->lang_path . $this->lang_name . "/common.$phpEx") : (@include $this->lang_path . $this->lang_name . "/common.$phpEx");
+
+		if ($include_result === false)
 		{
-			die('Language file ' . $this->lang_name . "/common.$phpEx" . " couldn't be opened.");
+			die('Language file ' . $this->lang_path . $this->lang_name . "/common.$phpEx" . " couldn't be opened.");
 		}
 
 		$this->add_lang($lang_set);
 		unset($lang_set);
 
-		if (!empty($_GET['style']) && $auth->acl_get('a_styles'))
+		if (!empty($_GET['style']) && $auth->acl_get('a_styles') && !defined('ADMIN_START'))
 		{
 			global $SID, $_EXTRA_URL;
 
@@ -1397,7 +1628,7 @@ class user extends session
 			$style = ($style) ? $style : ((!$config['override_user_style']) ? $this->data['user_style'] : $config['default_style']);
 		}
 
-		$sql = 'SELECT s.style_id, t.template_storedb, t.template_path, t.template_id, t.bbcode_bitfield, c.theme_path, c.theme_name, c.theme_storedb, c.theme_id, i.imageset_path, i.imageset_id, i.imageset_name
+		$sql = 'SELECT s.style_id, t.template_storedb, t.template_path, t.template_id, t.bbcode_bitfield, t.template_inherits_id, t.template_inherit_path, c.theme_path, c.theme_name, c.theme_storedb, c.theme_id, i.imageset_path, i.imageset_id, i.imageset_name
 			FROM ' . STYLES_TABLE . ' s, ' . STYLES_TEMPLATE_TABLE . ' t, ' . STYLES_THEME_TABLE . ' c, ' . STYLES_IMAGESET_TABLE . " i
 			WHERE s.style_id = $style
 				AND t.template_id = s.template_id
@@ -1505,7 +1736,8 @@ class user extends session
 
 		$this->img_lang = (file_exists($phpbb_root_path . 'styles/' . $this->theme['imageset_path'] . '/imageset/' . $this->lang_name)) ? $this->lang_name : $config['default_lang'];
 
-		$sql = 'SELECT image_name, image_filename, image_lang, image_height, image_width
+		// Same query in style.php
+		$sql = 'SELECT *
 			FROM ' . STYLES_IMAGESET_DATA_TABLE . '
 			WHERE imageset_id = ' . $this->theme['imageset_id'] . "
 			AND image_filename <> ''
@@ -1520,6 +1752,7 @@ class user extends session
 				$localised_images = true;
 			}
 
+			$row['image_filename'] = rawurlencode($row['image_filename']);
 			$this->img_array[$row['image_name']] = $row;
 		}
 		$db->sql_freeresult($result);
@@ -1603,7 +1836,7 @@ class user extends session
 
 		// Disable board if the install/ directory is still present
 		// For the brave development army we do not care about this, else we need to comment out this everytime we develop locally
-		if (!defined('DEBUG_EXTRA') && !defined('ADMIN_START') && !defined('IN_INSTALL') && !defined('IN_LOGIN') && file_exists($phpbb_root_path . 'install'))
+		if (!defined('DEBUG_EXTRA') && !defined('ADMIN_START') && !defined('IN_INSTALL') && !defined('IN_LOGIN') && file_exists($phpbb_root_path . 'install') && !is_file($phpbb_root_path . 'install'))
 		{
 			// Adjust the message slightly according to the permissions
 			if ($auth->acl_gets('a_', 'm_') || $auth->acl_getf_global('m_'))
@@ -1620,7 +1853,10 @@ class user extends session
 		// Is board disabled and user not an admin or moderator?
 		if ($config['board_disable'] && !defined('IN_LOGIN') && !$auth->acl_gets('a_', 'm_') && !$auth->acl_getf_global('m_'))
 		{
-			header('HTTP/1.1 503 Service Unavailable');
+			if ($this->data['is_bot'])
+			{
+				send_status_line(503, 'Service Unavailable');
+			}
 
 			$message = (!empty($config['board_disable_msg'])) ? $config['board_disable_msg'] : 'BOARD_DISABLE';
 			trigger_error($message);
@@ -1629,14 +1865,17 @@ class user extends session
 		// Is load exceeded?
 		if ($config['limit_load'] && $this->load !== false)
 		{
-			if ($this->load > floatval($config['limit_load']) && !defined('IN_LOGIN'))
+			if ($this->load > floatval($config['limit_load']) && !defined('IN_LOGIN') && !defined('IN_ADMIN'))
 			{
 				// Set board disabled to true to let the admins/mods get the proper notification
 				$config['board_disable'] = '1';
 
 				if (!$auth->acl_gets('a_', 'm_') && !$auth->acl_getf_global('m_'))
 				{
-					header('HTTP/1.1 503 Service Unavailable');
+					if ($this->data['is_bot'])
+					{
+						send_status_line(503, 'Service Unavailable');
+					}
 					trigger_error('BOARD_UNAVAILABLE');
 				}
 			}
@@ -1674,7 +1913,7 @@ class user extends session
 
 		// Does the user need to change their password? If so, redirect to the
 		// ucp profile reg_details page ... of course do not redirect if we're already in the ucp
-		if (!defined('IN_ADMIN') && !defined('ADMIN_START') && $config['chg_passforce'] && $this->data['is_registered'] && $auth->acl_get('u_chgpasswd') && $this->data['user_passchg'] < time() - ($config['chg_passforce'] * 86400))
+		if (!defined('IN_ADMIN') && !defined('ADMIN_START') && $config['chg_passforce'] && !empty($this->data['is_registered']) && $auth->acl_get('u_chgpasswd') && $this->data['user_passchg'] < time() - ($config['chg_passforce'] * 86400))
 		{
 			if (strpos($this->page['query_string'], 'mode=reg_details') === false && $this->page['page_name'] != "ucp.$phpEx")
 			{
@@ -1683,6 +1922,87 @@ class user extends session
 		}
 
 		return;
+	}
+
+	/**
+	* More advanced language substitution
+	* Function to mimic sprintf() with the possibility of using phpBB's language system to substitute nullar/singular/plural forms.
+	* Params are the language key and the parameters to be substituted.
+	* This function/functionality is inspired by SHS` and Ashe.
+	*
+	* Example call: <samp>$user->lang('NUM_POSTS_IN_QUEUE', 1);</samp>
+	*/
+	function lang()
+	{
+		$args = func_get_args();
+		$key = $args[0];
+
+		if (is_array($key))
+		{
+			$lang = &$this->lang[array_shift($key)];
+
+			foreach ($key as $_key)
+			{
+				$lang = &$lang[$_key];
+			}
+		}
+		else
+		{
+			$lang = &$this->lang[$key];
+		}
+
+		// Return if language string does not exist
+		if (!isset($lang) || (!is_string($lang) && !is_array($lang)))
+		{
+			return $key;
+		}
+
+		// If the language entry is a string, we simply mimic sprintf() behaviour
+		if (is_string($lang))
+		{
+			if (sizeof($args) == 1)
+			{
+				return $lang;
+			}
+
+			// Replace key with language entry and simply pass along...
+			$args[0] = $lang;
+			return call_user_func_array('sprintf', $args);
+		}
+
+		// It is an array... now handle different nullar/singular/plural forms
+		$key_found = false;
+
+		// We now get the first number passed and will select the key based upon this number
+		for ($i = 1, $num_args = sizeof($args); $i < $num_args; $i++)
+		{
+			if (is_int($args[$i]))
+			{
+				$numbers = array_keys($lang);
+
+				foreach ($numbers as $num)
+				{
+					if ($num > $args[$i])
+					{
+						break;
+					}
+
+					$key_found = $num;
+				}
+				break;
+			}
+		}
+
+		// Ok, let's check if the key was found, else use the last entry (because it is mostly the plural form)
+		if ($key_found === false)
+		{
+			$numbers = array_keys($lang);
+			$key_found = end($numbers);
+		}
+
+		// Use the language string we determined and pass it to sprintf()
+		$args[0] = $lang[$key_found];
+		return call_user_func_array('sprintf', $args);
 	}
 
 	/**
@@ -1746,12 +2066,11 @@ class user extends session
 	{
 		global $phpEx;
 
-		// Make sure the language path is set (if the user setup did not happen it is not set)
-		if (!$this->lang_path)
+		// Make sure the language name is set (if the user setup did not happen it is not set)
+		if (!$this->lang_name)
 		{
-			global $phpbb_root_path, $config;
-
-			$this->lang_path = $phpbb_root_path . 'language/' . basename($config['default_lang']) . '/';
+			global $config;
+			$this->lang_name = basename($config['default_lang']);
 		}
 
 		// $lang == $this->lang
@@ -1761,16 +2080,47 @@ class user extends session
 		{
 			if ($use_help && strpos($lang_file, '/') !== false)
 			{
-				$language_filename = $this->lang_path . substr($lang_file, 0, stripos($lang_file, '/') + 1) . 'help_' . substr($lang_file, stripos($lang_file, '/') + 1) . '.' . $phpEx;
+				$language_filename = $this->lang_path . $this->lang_name . '/' . substr($lang_file, 0, stripos($lang_file, '/') + 1) . 'help_' . substr($lang_file, stripos($lang_file, '/') + 1) . '.' . $phpEx;
 			}
 			else
 			{
-				$language_filename = $this->lang_path . (($use_help) ? 'help_' : '') . $lang_file . '.' . $phpEx;
+				$language_filename = $this->lang_path . $this->lang_name . '/' . (($use_help) ? 'help_' : '') . $lang_file . '.' . $phpEx;
 			}
 
-			if ((@include $language_filename) === false)
+			if (!file_exists($language_filename))
 			{
-				trigger_error('Language file ' . basename($language_filename) . ' couldn\'t be opened.', E_USER_ERROR);
+				global $config;
+
+				if ($this->lang_name == 'en')
+				{
+					// The user's selected language is missing the file, the board default's language is missing the file, and the file doesn't exist in /en.
+					$language_filename = str_replace($this->lang_path . 'en', $this->lang_path . $this->data['user_lang'], $language_filename);
+					trigger_error('Language file ' . $language_filename . ' couldn\'t be opened.', E_USER_ERROR);
+				}
+				else if ($this->lang_name == basename($config['default_lang']))
+				{
+					// Fall back to the English Language
+					$this->lang_name = 'en';
+					$this->set_lang($lang, $help, $lang_file, $use_db, $use_help);
+				}
+				else if ($this->lang_name == $this->data['user_lang'])
+				{
+					// Fall back to the board default language
+					$this->lang_name = basename($config['default_lang']);
+					$this->set_lang($lang, $help, $lang_file, $use_db, $use_help);
+				}
+
+				// Reset the lang name
+				$this->lang_name = (file_exists($this->lang_path . $this->data['user_lang'] . "/common.$phpEx")) ? $this->data['user_lang'] : basename($config['default_lang']);
+				return;
+			}
+
+			// Do not suppress error if in DEBUG_EXTRA mode
+			$include_result = (defined('DEBUG_EXTRA')) ? (include $language_filename) : (@include $language_filename);
+
+			if ($include_result === false)
+			{
+				trigger_error('Language file ' . $language_filename . ' couldn\'t be opened.', E_USER_ERROR);
 			}
 		}
 		else if ($use_db)
@@ -1783,50 +2133,79 @@ class user extends session
 
 	/**
 	* Format user date
+	*
+	* @param int $gmepoch unix timestamp
+	* @param string $format date format in date() notation. | used to indicate relative dates, for example |d m Y|, h:i is translated to Today, h:i.
+	* @param bool $forcedate force non-relative date format.
+	*
+	* @return mixed translated date
 	*/
 	function format_date($gmepoch, $format = false, $forcedate = false)
 	{
 		static $midnight;
+		static $date_cache;
 
-		$lang_dates = $this->lang['datetime'];
 		$format = (!$format) ? $this->date_format : $format;
+		$now = time();
+		$delta = $now - $gmepoch;
 
-		// Short representation of month in format
-		if ((strpos($format, '\M') === false && strpos($format, 'M') !== false) || (strpos($format, '\r') === false && strpos($format, 'r') !== false))
+		if (!isset($date_cache[$format]))
 		{
-			$lang_dates['May'] = $lang_dates['May_short'];
+			// Is the user requesting a friendly date format (i.e. 'Today 12:42')?
+			$date_cache[$format] = array(
+				'is_short'		=> strpos($format, '|'),
+				'format_short'	=> substr($format, 0, strpos($format, '|')) . '||' . substr(strrchr($format, '|'), 1),
+				'format_long'	=> str_replace('|', '', $format),
+				'lang'			=> $this->lang['datetime'],
+			);
+
+			// Short representation of month in format? Some languages use different terms for the long and short format of May
+			if ((strpos($format, '\M') === false && strpos($format, 'M') !== false) || (strpos($format, '\r') === false && strpos($format, 'r') !== false))
+			{
+				$date_cache[$format]['lang']['May'] = $this->lang['datetime']['May_short'];
+			}
 		}
 
-		unset($lang_dates['May_short']);
+		// Zone offset
+		$zone_offset = $this->timezone + $this->dst;
+
+		// Show date <= 1 hour ago as 'xx min ago' but not greater than 60 seconds in the future
+		// A small tolerence is given for times in the future but in the same minute are displayed as '< than a minute ago'
+		if ($delta <= 3600 && $delta > -60 && ($delta >= -5 || (($now / 60) % 60) == (($gmepoch / 60) % 60)) && $date_cache[$format]['is_short'] !== false && !$forcedate && isset($this->lang['datetime']['AGO']))
+		{
+			return $this->lang(array('datetime', 'AGO'), max(0, (int) floor($delta / 60)));
+		}
 
 		if (!$midnight)
 		{
-			list($d, $m, $y) = explode(' ', gmdate('j n Y', time() + $this->timezone + $this->dst));
-			$midnight = gmmktime(0, 0, 0, $m, $d, $y) - $this->timezone - $this->dst;
+			list($d, $m, $y) = explode(' ', gmdate('j n Y', time() + $zone_offset));
+			$midnight = gmmktime(0, 0, 0, $m, $d, $y) - $zone_offset;
 		}
 
-		if (strpos($format, '|') === false || ($gmepoch < $midnight - 86400 && !$forcedate) || ($gmepoch > $midnight + 172800 && !$forcedate))
+		if ($date_cache[$format]['is_short'] !== false && !$forcedate && !($gmepoch < $midnight - 86400 || $gmepoch > $midnight + 172800))
 		{
-			return strtr(@gmdate(str_replace('|', '', $format), $gmepoch + $this->timezone + $this->dst), $lang_dates);
+			$day = false;
+
+			if ($gmepoch > $midnight + 86400)
+			{
+				$day = 'TOMORROW';
+			}
+			else if ($gmepoch > $midnight)
+			{
+				$day = 'TODAY';
+			}
+			else if ($gmepoch > $midnight - 86400)
+			{
+				$day = 'YESTERDAY';
+			}
+
+			if ($day !== false)
+			{
+				return str_replace('||', $this->lang['datetime'][$day], strtr(@gmdate($date_cache[$format]['format_short'], $gmepoch + $zone_offset), $date_cache[$format]['lang']));
+			}
 		}
 
-		if ($gmepoch > $midnight + 86400 && !$forcedate)
-		{
-			$format = substr($format, 0, strpos($format, '|')) . '||' . substr(strrchr($format, '|'), 1);
-			return str_replace('||', $this->lang['datetime']['TOMORROW'], strtr(@gmdate($format, $gmepoch + $this->timezone + $this->dst), $lang_dates));
-		}
-		else if ($gmepoch > $midnight && !$forcedate)
-		{
-			$format = substr($format, 0, strpos($format, '|')) . '||' . substr(strrchr($format, '|'), 1);
-			return str_replace('||', $this->lang['datetime']['TODAY'], strtr(@gmdate($format, $gmepoch + $this->timezone + $this->dst), $lang_dates));
-		}
-		else if ($gmepoch > $midnight - 86400 && !$forcedate)
-		{
-			$format = substr($format, 0, strpos($format, '|')) . '||' . substr(strrchr($format, '|'), 1);
-			return str_replace('||', $this->lang['datetime']['YESTERDAY'], strtr(@gmdate($format, $gmepoch + $this->timezone + $this->dst), $lang_dates));
-		}
-
-		return strtr(@gmdate(str_replace('|', '', $format), $gmepoch + $this->timezone + $this->dst), $lang_dates);
+		return strtr(@gmdate($date_cache[$format]['format_long'], $gmepoch + $zone_offset), $date_cache[$format]['lang']);
 	}
 
 	/**
@@ -1878,6 +2257,7 @@ class user extends session
 
 	/**
 	* Specify/Get image
+	* $suffix is no longer used - we know it. ;) It is there for backward compatibility.
 	*/
 	function img($img, $alt = '', $width = false, $suffix = '', $type = 'full_tag')
 	{
@@ -1895,9 +2275,47 @@ class user extends session
 				return $img_data;
 			}
 
-			$img_data['src'] = $phpbb_root_path . 'styles/' . $this->theme['imageset_path'] . '/imageset/' . ($this->img_array[$img]['image_lang'] ? $this->img_array[$img]['image_lang'] .'/' : '') . $this->img_array[$img]['image_filename'];
+			// Use URL if told so
+			$root_path = (defined('PHPBB_USE_BOARD_URL_PATH') && PHPBB_USE_BOARD_URL_PATH) ? generate_board_url() . '/' : $phpbb_root_path;
+
+			$path = 'styles/' . rawurlencode($this->theme['imageset_path']) . '/imageset/' . ($this->img_array[$img]['image_lang'] ? $this->img_array[$img]['image_lang'] .'/' : '') . $this->img_array[$img]['image_filename'];
+
+			$img_data['src'] = $root_path . $path;
 			$img_data['width'] = $this->img_array[$img]['image_width'];
 			$img_data['height'] = $this->img_array[$img]['image_height'];
+
+			// We overwrite the width and height to the phpbb logo's width
+			// and height here if the contents of the site_logo file are
+			// really equal to the phpbb_logo
+			// This allows us to change the dimensions of the phpbb_logo without
+			// modifying the imageset.cfg and causing a conflict for everyone
+			// who modified it for their custom logo on updating
+			if ($img == 'site_logo' && file_exists($phpbb_root_path . $path))
+			{
+				global $cache;
+
+				$img_file_hashes = $cache->get('imageset_site_logo_md5');
+
+				if ($img_file_hashes === false)
+				{
+					$img_file_hashes = array();
+				}
+
+				$key = $this->theme['imageset_path'] . '::' . $this->img_array[$img]['image_lang'];
+				if (!isset($img_file_hashes[$key]))
+				{
+					$img_file_hashes[$key] = md5(file_get_contents($phpbb_root_path . $path));
+					$cache->put('imageset_site_logo_md5', $img_file_hashes);
+				}
+
+				$phpbb_logo_hash = '0c461a32cd3621643105f0d02a772c10';
+
+				if ($phpbb_logo_hash == $img_file_hashes[$key])
+				{
+					$img_data['width'] = '149';
+					$img_data['height'] = '52';
+				}
+			}
 		}
 
 		$alt = (!empty($this->lang[$alt])) ? $this->lang[$alt] : $alt;
@@ -1925,48 +2343,115 @@ class user extends session
 	}
 
 	/**
-	* Get option bit field from user options
+	* Get option bit field from user options.
+	*
+	* @param int $key option key, as defined in $keyoptions property.
+	* @param int $data bit field value to use, or false to use $this->data['user_options']
+	* @return bool true if the option is set in the bit field, false otherwise
 	*/
 	function optionget($key, $data = false)
 	{
-		if (!isset($this->keyvalues[$key]))
-		{
-			$var = ($data) ? $data : $this->data['user_options'];
-			$this->keyvalues[$key] = ($var & 1 << $this->keyoptions[$key]) ? true : false;
-		}
-
-		return $this->keyvalues[$key];
+		$var = ($data !== false) ? $data : $this->data['user_options'];
+		return phpbb_optionget($this->keyoptions[$key], $var);
 	}
 
 	/**
-	* Set option bit field for user options
+	* Set option bit field for user options.
+	*
+	* @param int $key Option key, as defined in $keyoptions property.
+	* @param bool $value True to set the option, false to clear the option.
+	* @param int $data Current bit field value, or false to use $this->data['user_options']
+	* @return int|bool If $data is false, the bit field is modified and
+	*                  written back to $this->data['user_options'], and
+	*                  return value is true if the bit field changed and
+	*                  false otherwise. If $data is not false, the new
+	*                  bitfield value is returned.
 	*/
 	function optionset($key, $value, $data = false)
 	{
-		$var = ($data) ? $data : $this->data['user_options'];
+		$var = ($data !== false) ? $data : $this->data['user_options'];
 
-		if ($value && !($var & 1 << $this->keyoptions[$key]))
+		$new_var = phpbb_optionset($this->keyoptions[$key], $value, $var);
+
+		if ($data === false)
 		{
-			$var += 1 << $this->keyoptions[$key];
-		}
-		else if (!$value && ($var & 1 << $this->keyoptions[$key]))
-		{
-			$var -= 1 << $this->keyoptions[$key];
+			if ($new_var != $var)
+			{
+				$this->data['user_options'] = $new_var;
+				return true;
+			}
+			else
+			{
+				return false;
+			}
 		}
 		else
 		{
-			return ($data) ? $var : false;
+			return $new_var;
+		}
+	}
+
+	/**
+	* Funtion to make the user leave the NEWLY_REGISTERED system group.
+	* @access public
+	*/
+	function leave_newly_registered()
+	{
+		global $db;
+
+		if (empty($this->data['user_new']))
+		{
+			return false;
 		}
 
-		if (!$data)
+		if (!function_exists('remove_newly_registered'))
 		{
-			$this->data['user_options'] = $var;
-			return true;
+			global $phpbb_root_path, $phpEx;
+
+			include($phpbb_root_path . 'includes/functions_user.' . $phpEx);
 		}
-		else
+		if ($group = remove_newly_registered($this->data['user_id'], $this->data))
 		{
-			return $var;
+			$this->data['group_id'] = $group;
+
 		}
+		$this->data['user_permissions'] = '';
+		$this->data['user_new'] = 0;
+
+		return true;
+	}
+
+	/**
+	* Returns all password protected forum ids the user is currently NOT authenticated for.
+	*
+	* @return array		Array of forum ids
+	* @access public
+	*/
+	function get_passworded_forums()
+	{
+		global $db;
+
+		$sql = 'SELECT f.forum_id, fa.user_id
+			FROM ' . FORUMS_TABLE . ' f
+			LEFT JOIN ' . FORUMS_ACCESS_TABLE . " fa
+				ON (fa.forum_id = f.forum_id
+					AND fa.session_id = '" . $db->sql_escape($this->session_id) . "')
+			WHERE f.forum_password <> ''";
+		$result = $db->sql_query($sql);
+
+		$forum_ids = array();
+		while ($row = $db->sql_fetchrow($result))
+		{
+			$forum_id = (int) $row['forum_id'];
+
+			if ($row['user_id'] != $this->data['user_id'])
+			{
+				$forum_ids[$forum_id] = $forum_id;
+			}
+		}
+		$db->sql_freeresult($result);
+
+		return $forum_ids;
 	}
 }
 

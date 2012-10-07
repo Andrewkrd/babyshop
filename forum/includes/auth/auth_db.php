@@ -7,7 +7,7 @@
 * This is for authentication via the integrated user table
 *
 * @package login
-* @version $Id: auth_db.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -23,8 +23,21 @@ if (!defined('IN_PHPBB'))
 
 /**
 * Login function
+*
+* @param string $username
+* @param string $password
+* @param string $ip			IP address the login is taking place from. Used to
+*							limit the number of login attempts per IP address.
+* @param string $browser	The user agent used to login
+* @param string $forwarded_for X_FORWARDED_FOR header sent with login request
+* @return array				A associative array of the format
+*							array(
+*								'status' => status constant
+*								'error_msg' => string
+*								'user_row' => array
+*							)
 */
-function login_db(&$username, &$password)
+function login_db($username, $password, $ip = '', $browser = '', $forwarded_for = '')
 {
 	global $db, $config;
 
@@ -47,15 +60,62 @@ function login_db(&$username, &$password)
 		);
 	}
 
+	$username_clean = utf8_clean_string($username);
+
 	$sql = 'SELECT user_id, username, user_password, user_passchg, user_pass_convert, user_email, user_type, user_login_attempts
 		FROM ' . USERS_TABLE . "
-		WHERE username_clean = '" . $db->sql_escape(utf8_clean_string($username)) . "'";
+		WHERE username_clean = '" . $db->sql_escape($username_clean) . "'";
 	$result = $db->sql_query($sql);
 	$row = $db->sql_fetchrow($result);
 	$db->sql_freeresult($result);
 
+	if (($ip && !$config['ip_login_limit_use_forwarded']) ||
+		($forwarded_for && $config['ip_login_limit_use_forwarded']))
+	{
+		$sql = 'SELECT COUNT(*) AS attempts
+			FROM ' . LOGIN_ATTEMPT_TABLE . '
+			WHERE attempt_time > ' . (time() - (int) $config['ip_login_limit_time']);
+		if ($config['ip_login_limit_use_forwarded'])
+		{
+			$sql .= " AND attempt_forwarded_for = '" . $db->sql_escape($forwarded_for) . "'";
+		}
+		else
+		{
+			$sql .= " AND attempt_ip = '" . $db->sql_escape($ip) . "' ";
+		}
+
+		$result = $db->sql_query($sql);
+		$attempts = (int) $db->sql_fetchfield('attempts');
+		$db->sql_freeresult($result);
+
+		$attempt_data = array(
+			'attempt_ip'			=> $ip,
+			'attempt_browser'		=> trim(substr($browser, 0, 149)),
+			'attempt_forwarded_for'	=> $forwarded_for,
+			'attempt_time'			=> time(),
+			'user_id'				=> ($row) ? (int) $row['user_id'] : 0,
+			'username'				=> $username,
+			'username_clean'		=> $username_clean,
+		);
+		$sql = 'INSERT INTO ' . LOGIN_ATTEMPT_TABLE . $db->sql_build_array('INSERT', $attempt_data);
+		$result = $db->sql_query($sql);
+	}
+	else
+	{
+		$attempts = 0;
+	}
+
 	if (!$row)
 	{
+		if ($config['ip_login_limit_max'] && $attempts >= $config['ip_login_limit_max'])
+		{
+			return array(
+				'status'		=> LOGIN_ERROR_ATTEMPTS,
+				'error_msg'		=> 'LOGIN_ERROR_ATTEMPTS',
+				'user_row'		=> array('user_id' => ANONYMOUS),
+			);
+		}
+
 		return array(
 			'status'	=> LOGIN_ERROR_USERNAME,
 			'error_msg'	=> 'LOGIN_ERROR_USERNAME',
@@ -63,15 +123,24 @@ function login_db(&$username, &$password)
 		);
 	}
 
+	$show_captcha = ($config['max_login_attempts'] && $row['user_login_attempts'] >= $config['max_login_attempts']) ||
+		($config['ip_login_limit_max'] && $attempts >= $config['ip_login_limit_max']);
+
 	// If there are too much login attempts, we need to check for an confirm image
 	// Every auth module is able to define what to do by itself...
-	if ($config['max_login_attempts'] && $row['user_login_attempts'] >= $config['max_login_attempts'])
+	if ($show_captcha)
 	{
-		$confirm_id = request_var('confirm_id', '');
-		$confirm_code = request_var('confirm_code', '');
-
 		// Visual Confirmation handling
-		if (!$confirm_id)
+		if (!class_exists('phpbb_captcha_factory'))
+		{
+			global $phpbb_root_path, $phpEx;
+			include ($phpbb_root_path . 'includes/captcha/captcha_factory.' . $phpEx);
+		}
+
+		$captcha =& phpbb_captcha_factory::get_instance($config['captcha_plugin']);
+		$captcha->init(CONFIRM_LOGIN);
+		$vc_response = $captcha->validate($row);
+		if ($vc_response)
 		{
 			return array(
 				'status'		=> LOGIN_ERROR_ATTEMPTS,
@@ -81,45 +150,9 @@ function login_db(&$username, &$password)
 		}
 		else
 		{
-			global $user;
-
-			$sql = 'SELECT code
-				FROM ' . CONFIRM_TABLE . "
-				WHERE confirm_id = '" . $db->sql_escape($confirm_id) . "'
-					AND session_id = '" . $db->sql_escape($user->session_id) . "'
-					AND confirm_type = " . CONFIRM_LOGIN;
-			$result = $db->sql_query($sql);
-			$confirm_row = $db->sql_fetchrow($result);
-			$db->sql_freeresult($result);
-
-			if ($confirm_row)
-			{
-				if (strcasecmp($confirm_row['code'], $confirm_code) === 0)
-				{
-					$sql = 'DELETE FROM ' . CONFIRM_TABLE . "
-						WHERE confirm_id = '" . $db->sql_escape($confirm_id) . "'
-							AND session_id = '" . $db->sql_escape($user->session_id) . "'
-							AND confirm_type = " . CONFIRM_LOGIN;
-					$db->sql_query($sql);
-				}
-				else
-				{
-					return array(
-						'status'		=> LOGIN_ERROR_ATTEMPTS,
-						'error_msg'		=> 'CONFIRM_CODE_WRONG',
-						'user_row'		=> $row,
-					);
-				}
-			}
-			else
-			{
-				return array(
-					'status'		=> LOGIN_ERROR_ATTEMPTS,
-					'error_msg'		=> 'CONFIRM_CODE_WRONG',
-					'user_row'		=> $row,
-				);
-			}
+			$captcha->reset();
 		}
+
 	}
 
 	// If the password convert flag is set we need to convert it
@@ -130,7 +163,7 @@ function login_db(&$username, &$password)
 		$password_old_format = (!STRIP) ? addslashes($password_old_format) : $password_old_format;
 		$password_new_format = '';
 
-		set_var($password_new_format, stripslashes($password_old_format), 'string');
+		set_var($password_new_format, stripslashes($password_old_format), 'string', true);
 
 		if ($password == $password_new_format)
 		{
@@ -141,7 +174,9 @@ function login_db(&$username, &$password)
 			}
 
 			// cp1252 is phpBB2's default encoding, characters outside ASCII range might work when converted into that encoding
-			if (md5($password_old_format) == $row['user_password'] || md5(utf8_to_cp1252($password_old_format)) == $row['user_password'])
+			// plain md5 support left in for conversions from other systems.
+			if ((strlen($row['user_password']) == 34 && (phpbb_check_hash(md5($password_old_format), $row['user_password']) || phpbb_check_hash(md5(utf8_to_cp1252($password_old_format)), $row['user_password'])))
+				|| (strlen($row['user_password']) == 32  && (md5($password_old_format) == $row['user_password'] || md5(utf8_to_cp1252($password_old_format)) == $row['user_password'])))
 			{
 				$hash = phpbb_hash($password_new_format);
 
@@ -161,7 +196,8 @@ function login_db(&$username, &$password)
 				// increase login attempt count to make sure this cannot be exploited
 				$sql = 'UPDATE ' . USERS_TABLE . '
 					SET user_login_attempts = user_login_attempts + 1
-					WHERE user_id = ' . $row['user_id'];
+					WHERE user_id = ' . (int) $row['user_id'] . '
+						AND user_login_attempts < ' . LOGIN_ATTEMPTS_MAX;
 				$db->sql_query($sql);
 
 				return array(
@@ -190,6 +226,10 @@ function login_db(&$username, &$password)
 
 			$row['user_password'] = $hash;
 		}
+
+		$sql = 'DELETE FROM ' . LOGIN_ATTEMPT_TABLE . '
+			WHERE user_id = ' . $row['user_id'];
+		$db->sql_query($sql);
 
 		if ($row['user_login_attempts'] != 0)
 		{
@@ -221,13 +261,14 @@ function login_db(&$username, &$password)
 	// Password incorrect - increase login attempts
 	$sql = 'UPDATE ' . USERS_TABLE . '
 		SET user_login_attempts = user_login_attempts + 1
-		WHERE user_id = ' . $row['user_id'];
+		WHERE user_id = ' . (int) $row['user_id'] . '
+			AND user_login_attempts < ' . LOGIN_ATTEMPTS_MAX;
 	$db->sql_query($sql);
 
 	// Give status about wrong password...
 	return array(
-		'status'		=> LOGIN_ERROR_PASSWORD,
-		'error_msg'		=> 'LOGIN_ERROR_PASSWORD',
+		'status'		=> ($show_captcha) ? LOGIN_ERROR_ATTEMPTS : LOGIN_ERROR_PASSWORD,
+		'error_msg'		=> ($show_captcha) ? 'LOGIN_ERROR_ATTEMPTS' : 'LOGIN_ERROR_PASSWORD',
 		'user_row'		=> $row,
 	);
 }

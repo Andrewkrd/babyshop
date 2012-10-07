@@ -1,3 +1,13 @@
+#
+# Uncomment the statement below if you want to make use of
+# HTTP authentication and it does not already work.
+# This could be required if you are for example using PHP via Apache CGI.
+#
+#<IfModule mod_rewrite.c>
+#RewriteEngine on
+#RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization},L]
+#</IfModule>
+
 <Files "config.php">
 Order Allow,Deny
 Deny from All
@@ -7,5 +17,3 @@ Deny from All
 Order Allow,Deny
 Deny from All
 </Files>
-
-DirectoryIndex index.php

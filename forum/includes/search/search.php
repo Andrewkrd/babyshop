@@ -2,7 +2,7 @@
 /**
 *
 * @package search
-* @version $Id: search.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -52,10 +52,10 @@ class search_backend
 
 			$words = array();
 
-			if (file_exists("{$user->lang_path}/search_ignore_words.$phpEx"))
+			if (file_exists("{$user->lang_path}{$user->lang_name}/search_ignore_words.$phpEx"))
 			{
 				// include the file containing ignore words
-				include("{$user->lang_path}/search_ignore_words.$phpEx");
+				include("{$user->lang_path}{$user->lang_name}/search_ignore_words.$phpEx");
 			}
 
 			$this->ignore_words = $words;
@@ -74,10 +74,10 @@ class search_backend
 
 			$synonyms = array();
 
-			if (file_exists("{$user->lang_path}/search_synonyms.$phpEx"))
+			if (file_exists("{$user->lang_path}{$user->lang_name}/search_synonyms.$phpEx"))
 			{
 				// include the file containing synonyms
-				include("{$user->lang_path}/search_synonyms.$phpEx");
+				include("{$user->lang_path}{$user->lang_name}/search_synonyms.$phpEx");
 			}
 
 			$this->match_synonym = array_keys($synonyms);
@@ -295,7 +295,7 @@ class search_backend
 			$sql_where = '';
 			foreach ($authors as $author)
 			{
-				$sql_where .= (($sql_where) ? ' OR ' : '') . 'search_authors LIKE \'% ' . (int) $author . ' %\'';
+				$sql_where .= (($sql_where) ? ' OR ' : '') . 'search_authors ' . $db->sql_like_expression($db->any_char . ' ' . (int) $author . ' ' . $db->any_char);
 			}
 
 			$sql = 'SELECT search_key

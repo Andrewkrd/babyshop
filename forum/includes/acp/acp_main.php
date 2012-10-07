@@ -2,7 +2,7 @@
 /**
 *
 * @package acp
-* @version $Id: acp_main.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -61,6 +61,14 @@ class acp_main
 
 		if ($action)
 		{
+			if ($action === 'admlogout')
+			{
+				$user->unset_admin();
+				$redirect_url = append_sid("{$phpbb_root_path}index.$phpEx");
+				meta_refresh(3, $redirect_url);
+				trigger_error($user->lang['ADM_LOGGED_OUT'] . '<br /><br />' . sprintf($user->lang['RETURN_INDEX'], '<a href="' . $redirect_url . '">', '</a>'));
+			}
+
 			if (!confirm_box(true))
 			{
 				switch ($action)
@@ -89,6 +97,10 @@ class acp_main
 						$confirm = true;
 						$confirm_lang = 'PURGE_CACHE_CONFIRM';
 					break;
+					case 'purge_sessions':
+						$confirm = true;
+						$confirm_lang = 'PURGE_SESSIONS_CONFIRM';
+					break;
 
 					default:
 						$confirm = true;
@@ -108,6 +120,7 @@ class acp_main
 			{
 				switch ($action)
 				{
+
 					case 'online':
 						if (!$auth->acl_get('a_board'))
 						{
@@ -157,9 +170,9 @@ class acp_main
 							FROM ' . ATTACHMENTS_TABLE . '
 							WHERE is_orphan = 0';
 						$result = $db->sql_query($sql);
-						set_config('upload_dir_size', (int) $db->sql_fetchfield('stat'), true);
+						set_config('upload_dir_size', (float) $db->sql_fetchfield('stat'), true);
 						$db->sql_freeresult($result);
-						
+
 						if (!function_exists('update_last_username'))
 						{
 							include($phpbb_root_path . "includes/functions_user.$phpEx");
@@ -175,22 +188,63 @@ class acp_main
 							trigger_error($user->lang['NO_AUTH_OPERATION'] . adm_back_link($this->u_action), E_USER_WARNING);
 						}
 
-						$sql = 'SELECT COUNT(p.post_id) AS num_posts, u.user_id
-							FROM ' . USERS_TABLE . ' u
-							LEFT JOIN  ' . POSTS_TABLE . ' p ON (u.user_id = p.poster_id AND p.post_postcount = 1)
-							GROUP BY u.user_id';
-						$result = $db->sql_query($sql);
+						// Resync post counts
+						$start = $max_post_id = 0;
 
-						while ($row = $db->sql_fetchrow($result))
-						{
-							$db->sql_query('UPDATE ' . USERS_TABLE . " SET user_posts = {$row['num_posts']} WHERE user_id = {$row['user_id']}");
-						}
+						// Find the maximum post ID, we can only stop the cycle when we've reached it
+						$sql = 'SELECT MAX(forum_last_post_id) as max_post_id
+							FROM ' . FORUMS_TABLE;
+						$result = $db->sql_query($sql);
+						$max_post_id = (int) $db->sql_fetchfield('max_post_id');
 						$db->sql_freeresult($result);
+
+						// No maximum post id? :o
+						if (!$max_post_id)
+						{
+							$sql = 'SELECT MAX(post_id) as max_post_id
+								FROM ' . POSTS_TABLE;
+							$result = $db->sql_query($sql);
+							$max_post_id = (int) $db->sql_fetchfield('max_post_id');
+							$db->sql_freeresult($result);
+						}
+
+						// Still no maximum post id? Then we are finished
+						if (!$max_post_id)
+						{
+							add_log('admin', 'LOG_RESYNC_POSTCOUNTS');
+							break;
+						}
+
+						$step = ($config['num_posts']) ? (max((int) ($config['num_posts'] / 5), 20000)) : 20000;
+						$db->sql_query('UPDATE ' . USERS_TABLE . ' SET user_posts = 0');
+
+						while ($start < $max_post_id)
+						{
+							$sql = 'SELECT COUNT(post_id) AS num_posts, poster_id
+								FROM ' . POSTS_TABLE . '
+								WHERE post_id BETWEEN ' . ($start + 1) . ' AND ' . ($start + $step) . '
+									AND post_postcount = 1 AND post_approved = 1
+								GROUP BY poster_id';
+							$result = $db->sql_query($sql);
+
+							if ($row = $db->sql_fetchrow($result))
+							{
+								do
+								{
+									$sql = 'UPDATE ' . USERS_TABLE . " SET user_posts = user_posts + {$row['num_posts']} WHERE user_id = {$row['poster_id']}";
+									$db->sql_query($sql);
+								}
+								while ($row = $db->sql_fetchrow($result));
+							}
+							$db->sql_freeresult($result);
+
+							$start += $step;
+						}
 
 						add_log('admin', 'LOG_RESYNC_POSTCOUNTS');
 
 					break;
-			
+
 					case 'date':
 						if (!$auth->acl_get('a_board'))
 						{
@@ -200,7 +254,7 @@ class acp_main
 						set_config('board_startdate', time() - 1);
 						add_log('admin', 'LOG_RESET_DATE');
 					break;
-				
+
 					case 'db_track':
 						switch ($db->sql_layer)
 						{
@@ -222,7 +276,7 @@ class acp_main
 							FROM ' . FORUMS_TABLE . '
 							WHERE forum_type <> ' . FORUM_CAT;
 						$result = $db->sql_query($sql);
-				
+
 						$forum_ids = array();
 						while ($row = $db->sql_fetchrow($result))
 						{
@@ -272,7 +326,7 @@ class acp_main
 								$db->sql_multi_insert(TOPICS_POSTED_TABLE, $sql_ary);
 							}
 						}
-			
+
 						add_log('admin', 'LOG_RESYNC_POST_MARKING');
 					break;
 
@@ -291,8 +345,79 @@ class acp_main
 
 						add_log('admin', 'LOG_PURGE_CACHE');
 					break;
+
+					case 'purge_sessions':
+						if ((int) $user->data['user_type'] !== USER_FOUNDER)
+						{
+							trigger_error($user->lang['NO_AUTH_OPERATION'] . adm_back_link($this->u_action), E_USER_WARNING);
+						}
+
+						$tables = array(CONFIRM_TABLE, SESSIONS_TABLE);
+
+						foreach ($tables as $table)
+						{
+							switch ($db->sql_layer)
+							{
+								case 'sqlite':
+								case 'firebird':
+									$db->sql_query("DELETE FROM $table");
+								break;
+
+								default:
+									$db->sql_query("TRUNCATE TABLE $table");
+								break;
+							}
+						}
+
+						// let's restore the admin session
+						$reinsert_ary = array(
+								'session_id'			=> (string) $user->session_id,
+								'session_page'			=> (string) substr($user->page['page'], 0, 199),
+								'session_forum_id'		=> $user->page['forum'],
+								'session_user_id'		=> (int) $user->data['user_id'],
+								'session_start'			=> (int) $user->data['session_start'],
+								'session_last_visit'	=> (int) $user->data['session_last_visit'],
+								'session_time'			=> (int) $user->time_now,
+								'session_browser'		=> (string) trim(substr($user->browser, 0, 149)),
+								'session_forwarded_for'	=> (string) $user->forwarded_for,
+								'session_ip'			=> (string) $user->ip,
+								'session_autologin'		=> (int) $user->data['session_autologin'],
+								'session_admin'			=> 1,
+								'session_viewonline'	=> (int) $user->data['session_viewonline'],
+						);
+
+						$sql = 'INSERT INTO ' . SESSIONS_TABLE . ' ' . $db->sql_build_array('INSERT', $reinsert_ary);
+						$db->sql_query($sql);
+
+						add_log('admin', 'LOG_PURGE_SESSIONS');
+					break;
 				}
 			}
+		}
+
+		// Version check
+		$user->add_lang('install');
+
+		if ($auth->acl_get('a_server') && version_compare(PHP_VERSION, '5.3.2', '<'))
+		{
+			$template->assign_vars(array(
+				'S_PHP_VERSION_OLD'	=> true,
+				'L_PHP_VERSION_OLD'	=> sprintf($user->lang['PHP_VERSION_OLD'], '<a href="http://www.phpbb.com/community/viewtopic.php?f=14&amp;t=2152375">', '</a>'),
+			));
+		}
+
+		$latest_version_info = false;
+		if (($latest_version_info = obtain_latest_version_info(request_var('versioncheck_force', false))) === false)
+		{
+			$template->assign_var('S_VERSIONCHECK_FAIL', true);
+		}
+		else
+		{
+			$latest_version_info = explode("\n", $latest_version_info);
+
+			$template->assign_vars(array(
+				'S_VERSION_UP_TO_DATE'	=> phpbb_version_compare(trim($latest_version_info[0]), $config['version'], '<='),
+			));
 		}
 
 		// Get forum statistics
@@ -311,7 +436,7 @@ class acp_main
 		$files_per_day = sprintf('%.2f', $total_files / $boarddays);
 
 		$upload_dir_size = get_formatted_filesize($config['upload_dir_size']);
-	
+
 		$avatar_dir_size = 0;
 
 		if ($avatar_dir = @opendir($phpbb_root_path . $config['avatar_path']))
@@ -385,13 +510,15 @@ class acp_main
 			'UPLOAD_DIR_SIZE'	=> $upload_dir_size,
 			'TOTAL_ORPHAN'		=> $total_orphan,
 			'S_TOTAL_ORPHAN'	=> ($total_orphan === false) ? false : true,
-			'GZIP_COMPRESSION'	=> ($config['gzip_compress']) ? $user->lang['ON'] : $user->lang['OFF'],
+			'GZIP_COMPRESSION'	=> ($config['gzip_compress'] && @extension_loaded('zlib')) ? $user->lang['ON'] : $user->lang['OFF'],
 			'DATABASE_INFO'		=> $db->sql_server_info(),
 			'BOARD_VERSION'		=> $config['version'],
 
 			'U_ACTION'			=> $this->u_action,
 			'U_ADMIN_LOG'		=> append_sid("{$phpbb_admin_path}index.$phpEx", 'i=logs&amp;mode=admin'),
 			'U_INACTIVE_USERS'	=> append_sid("{$phpbb_admin_path}index.$phpEx", 'i=inactive&amp;mode=list'),
+			'U_VERSIONCHECK'	=> append_sid("{$phpbb_admin_path}index.$phpEx", 'i=update&amp;mode=version_check'),
+			'U_VERSIONCHECK_FORCE'	=> append_sid("{$phpbb_admin_path}index.$phpEx", 'versioncheck_force=1'),
 
 			'S_ACTION_OPTIONS'	=> ($auth->acl_get('a_board')) ? true : false,
 			'S_FOUNDER'			=> ($user->data['user_type'] == USER_FOUNDER) ? true : false,
@@ -399,7 +526,7 @@ class acp_main
 		);
 
 		$log_data = array();
-		$log_count = 0;
+		$log_count = false;
 
 		if ($auth->acl_get('a_viewlogs'))
 		{
@@ -418,6 +545,8 @@ class acp_main
 
 		if ($auth->acl_get('a_user'))
 		{
+			$user->add_lang('memberlist');
+
 			$inactive = array();
 			$inactive_count = 0;
 
@@ -427,13 +556,24 @@ class acp_main
 			{
 				$template->assign_block_vars('inactive', array(
 					'INACTIVE_DATE'	=> $user->format_date($row['user_inactive_time']),
+					'REMINDED_DATE'	=> $user->format_date($row['user_reminded_time']),
 					'JOINED'		=> $user->format_date($row['user_regdate']),
 					'LAST_VISIT'	=> (!$row['user_lastvisit']) ? ' - ' : $user->format_date($row['user_lastvisit']),
+
 					'REASON'		=> $row['inactive_reason'],
 					'USER_ID'		=> $row['user_id'],
-					'USERNAME'		=> $row['username'],
-					'U_USER_ADMIN'	=> append_sid("{$phpbb_admin_path}index.$phpEx", "i=users&amp;mode=overview&amp;u={$row['user_id']}"))
-				);
+					'POSTS'			=> ($row['user_posts']) ? $row['user_posts'] : 0,
+					'REMINDED'		=> $row['user_reminded'],
+
+					'REMINDED_EXPLAIN'	=> $user->lang('USER_LAST_REMINDED', (int) $row['user_reminded'], $user->format_date($row['user_reminded_time'])),
+
+					'USERNAME_FULL'		=> get_username_string('full', $row['user_id'], $row['username'], $row['user_colour'], false, append_sid("{$phpbb_admin_path}index.$phpEx", 'i=users&amp;mode=overview')),
+					'USERNAME'			=> get_username_string('username', $row['user_id'], $row['username'], $row['user_colour']),
+					'USER_COLOR'		=> get_username_string('colour', $row['user_id'], $row['username'], $row['user_colour']),
+
+					'U_USER_ADMIN'	=> append_sid("{$phpbb_admin_path}index.$phpEx", "i=users&amp;mode=overview&amp;u={$row['user_id']}"),
+					'U_SEARCH_USER'	=> ($auth->acl_get('u_search')) ? append_sid("{$phpbb_root_path}search.$phpEx", "author_id={$row['user_id']}&amp;sr=posts") : '',
+				));
 			}
 
 			$option_ary = array('activate' => 'ACTIVATE', 'delete' => 'DELETE');
@@ -449,9 +589,32 @@ class acp_main
 		}
 
 		// Warn if install is still present
-		if (file_exists($phpbb_root_path . 'install'))
+		if (file_exists($phpbb_root_path . 'install') && !is_file($phpbb_root_path . 'install'))
 		{
 			$template->assign_var('S_REMOVE_INSTALL', true);
+		}
+
+		if (!defined('PHPBB_DISABLE_CONFIG_CHECK') && file_exists($phpbb_root_path . 'config.' . $phpEx) && phpbb_is_writable($phpbb_root_path . 'config.' . $phpEx))
+		{
+			// World-Writable? (000x)
+			$template->assign_var('S_WRITABLE_CONFIG', (bool) (@fileperms($phpbb_root_path . 'config.' . $phpEx) & 0x0002));
+		}
+
+		if (extension_loaded('mbstring'))
+		{
+			$template->assign_vars(array(
+				'S_MBSTRING_LOADED'						=> true,
+				'S_MBSTRING_FUNC_OVERLOAD_FAIL'			=> (intval(@ini_get('mbstring.func_overload')) & (MB_OVERLOAD_MAIL | MB_OVERLOAD_STRING)),
+				'S_MBSTRING_ENCODING_TRANSLATION_FAIL'	=> (@ini_get('mbstring.encoding_translation') != 0),
+				'S_MBSTRING_HTTP_INPUT_FAIL'			=> (@ini_get('mbstring.http_input') != 'pass'),
+				'S_MBSTRING_HTTP_OUTPUT_FAIL'			=> (@ini_get('mbstring.http_output') != 'pass'),
+			));
+		}
+
+		// Fill dbms version if not yet filled
+		if (empty($config['dbms_version']))
+		{
+			set_config('dbms_version', $db->sql_server_info(true));
 		}
 
 		$this->tpl_name = 'acp_main';

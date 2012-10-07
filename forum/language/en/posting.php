@@ -4,7 +4,7 @@
 * posting [English]
 *
 * @package language
-* @version $Id: posting.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -42,13 +42,14 @@ $lang = array_merge($lang, array(
 	'ADD_POLL'					=> 'Poll creation',
 	'ADD_POLL_EXPLAIN'			=> 'If you do not want to add a poll to your topic leave the fields blank.',
 	'ALREADY_DELETED'			=> 'Sorry but this message is already deleted.',
+	'ATTACH_DISK_FULL'			=> 'There is not enough free disk space to post this attachment.',
 	'ATTACH_QUOTA_REACHED'		=> 'Sorry, the board attachment quota has been reached.',
 	'ATTACH_SIG'				=> 'Attach a signature (signatures can be altered via the UCP)',
 
 	'BBCODE_A_HELP'				=> 'Inline uploaded attachment: [attachment=]filename.ext[/attachment]',
 	'BBCODE_B_HELP'				=> 'Bold text: [b]text[/b]',
 	'BBCODE_C_HELP'				=> 'Code display: [code]code[/code]',
-	'BBCODE_E_HELP'				=> 'List: Add list element',
+	'BBCODE_D_HELP'				=> 'Flash: [flash=width,height]http://url[/flash]',
 	'BBCODE_F_HELP'				=> 'Font size: [size=85]small text[/size]',
 	'BBCODE_IS_OFF'				=> '%sBBCode%s is <em>OFF</em>',
 	'BBCODE_IS_ON'				=> '%sBBCode%s is <em>ON</em>',
@@ -61,7 +62,7 @@ $lang = array_merge($lang, array(
 	'BBCODE_S_HELP'				=> 'Font colour: [color=red]text[/color]  Tip: you can also use color=#FF0000',
 	'BBCODE_U_HELP'				=> 'Underline text: [u]text[/u]',
 	'BBCODE_W_HELP'				=> 'Insert URL: [url]http://url[/url] or [url=http://url]URL text[/url]',
-	'BBCODE_D_HELP'				=> 'Flash: [flash=width,height]http://url[/flash]',
+	'BBCODE_Y_HELP'				=> 'List: Add list element',
 	'BUMP_ERROR'				=> 'You cannot bump this topic so soon after the last post.',
 
 	'CANNOT_DELETE_REPLIED'		=> 'Sorry but you may only delete posts which have not been replied to.',
@@ -82,6 +83,7 @@ $lang = array_merge($lang, array(
 	'DISABLE_BBCODE'			=> 'Disable BBCode',
 	'DISABLE_MAGIC_URL'			=> 'Do not automatically parse URLs',
 	'DISABLE_SMILIES'			=> 'Disable smilies',
+	'DISALLOWED_CONTENT'		=> 'The upload was rejected because the uploaded file was identified as a possible attack vector.',
 	'DISALLOWED_EXTENSION'		=> 'The extension %s is not allowed.',
 	'DRAFT_LOADED'				=> 'Draft loaded into posting area, you may want to finish your post now.<br />Your draft will be deleted after submitting this post.',
 	'DRAFT_LOADED_PM'			=> 'Draft loaded into message area, you may want to finish your private message now.<br />Your draft will be deleted after submitting this private message.',
@@ -140,7 +142,7 @@ $lang = array_merge($lang, array(
 
 	'PARTIAL_UPLOAD'			=> 'The uploaded file was only partially uploaded.',
 	'PHP_SIZE_NA'				=> 'The attachment’s file size is too large.<br />Could not determine the maximum size defined by PHP in php.ini.',
-	'PHP_SIZE_OVERRUN'			=> 'The attachment’s file size is too large, the maximum upload size is %d MB.<br />Please note this is set in php.ini and cannot be overridden.',
+	'PHP_SIZE_OVERRUN'			=> 'The attachment’s file size is too large, the maximum upload size is %1$d %2$s.<br />Please note this is set in php.ini and cannot be overridden.',
 	'PLACE_INLINE'				=> 'Place inline',
 	'POLL_DELETE'				=> 'Delete poll',
 	'POLL_FOR'					=> 'Run poll for',
@@ -166,6 +168,8 @@ $lang = array_merge($lang, array(
 	'POST_ICON'					=> 'Post icon',
 	'POST_NORMAL'				=> 'Normal',
 	'POST_REVIEW'				=> 'Post review',
+	'POST_REVIEW_EDIT'			=> 'Post review',
+	'POST_REVIEW_EDIT_EXPLAIN'	=> 'This post has been altered by another user while you were editing it. You may wish to review the current version of this post and adjust your edits.',
 	'POST_REVIEW_EXPLAIN'		=> 'At least one new post has been made to this topic. You may wish to review your post in light of this.',
 	'POST_STORED'				=> 'This message has been posted successfully.',
 	'POST_STORED_MOD'			=> 'This message has been submitted successfully, but it will need to be approved by a moderator before it is publicly viewable.',
@@ -183,10 +187,11 @@ $lang = array_merge($lang, array(
 	'SMILIES_ARE_ON'			=> 'Smilies are <em>ON</em>',
 	'STICKY_ANNOUNCE_TIME_LIMIT'=> 'Sticky/Announcement time limit',
 	'STICK_TOPIC_FOR'			=> 'Stick topic for',
-	'STICK_TOPIC_FOR_EXPLAIN'	=> 'Enter 0 or leave blank for a never ending Sticky/Announcement.',
+	'STICK_TOPIC_FOR_EXPLAIN'	=> 'Enter 0 or leave blank for a never ending Sticky/Announcement. Please note that this number is relative to the date of the post.',
 	'STYLES_TIP'				=> 'Tip: Styles can be applied quickly to selected text.',
 
 	'TOO_FEW_CHARS'				=> 'Your message contains too few characters.',
+	'TOO_FEW_CHARS_LIMIT'		=> 'Your message contains %1$d characters. The minimum number of characters you need to enter is %2$d.',
 	'TOO_FEW_POLL_OPTIONS'		=> 'You must enter at least two poll options.',
 	'TOO_MANY_ATTACHMENTS'		=> 'Cannot add another attachment, %d is the maximum.',
 	'TOO_MANY_CHARS'			=> 'Your message contains too many characters.',

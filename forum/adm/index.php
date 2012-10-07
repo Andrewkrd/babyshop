@@ -2,7 +2,7 @@
 /**
 *
 * @package acp
-* @version $Id: index.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -45,7 +45,7 @@ define('IN_ADMIN', true);
 $phpbb_admin_path = (defined('PHPBB_ADMIN_PATH')) ? PHPBB_ADMIN_PATH : './';
 
 // Some oft used variables
-$safe_mode		= (@ini_get('safe_mode') == '1' || @strtolower(ini_get('safe_mode')) === 'on') ? true : false;
+$safe_mode		= (@ini_get('safe_mode') == '1' || strtolower(@ini_get('safe_mode')) === 'on') ? true : false;
 $file_uploads	= (@ini_get('file_uploads') == '1' || strtolower(@ini_get('file_uploads')) === 'on') ? true : false;
 $module_id		= request_var('i', '');
 $mode			= request_var('mode', '');
@@ -116,6 +116,7 @@ function adm_page_header($page_title)
 		'ROOT_PATH'				=> $phpbb_admin_path,
 
 		'U_LOGOUT'				=> append_sid("{$phpbb_root_path}ucp.$phpEx", 'mode=logout'),
+		'U_ADM_LOGOUT'			=> append_sid("{$phpbb_admin_path}index.$phpEx", 'action=admlogout'),
 		'U_ADM_INDEX'			=> append_sid("{$phpbb_admin_path}index.$phpEx"),
 		'U_INDEX'				=> append_sid("{$phpbb_root_path}index.$phpEx"),
 
@@ -130,7 +131,7 @@ function adm_page_header($page_title)
 		'ICON_MOVE_UP'				=> '<img src="' . $phpbb_admin_path . 'images/icon_up.gif" alt="' . $user->lang['MOVE_UP'] . '" title="' . $user->lang['MOVE_UP'] . '" />',
 		'ICON_MOVE_UP_DISABLED'		=> '<img src="' . $phpbb_admin_path . 'images/icon_up_disabled.gif" alt="' . $user->lang['MOVE_UP'] . '" title="' . $user->lang['MOVE_UP'] . '" />',
 		'ICON_MOVE_DOWN'			=> '<img src="' . $phpbb_admin_path . 'images/icon_down.gif" alt="' . $user->lang['MOVE_DOWN'] . '" title="' . $user->lang['MOVE_DOWN'] . '" />',
-		'ICON_MOVE_DOWN_DISABLED'	=> '<img src="' . $phpbb_admin_path . 'images/icon_down_disabled.gif" alt="' . $user->lang['MOVE_DOWN'] . '" title="' . $user->lang['MOVE_DOWN'] . '" />',		
+		'ICON_MOVE_DOWN_DISABLED'	=> '<img src="' . $phpbb_admin_path . 'images/icon_down_disabled.gif" alt="' . $user->lang['MOVE_DOWN'] . '" title="' . $user->lang['MOVE_DOWN'] . '" />',
 		'ICON_EDIT'					=> '<img src="' . $phpbb_admin_path . 'images/icon_edit.gif" alt="' . $user->lang['EDIT'] . '" title="' . $user->lang['EDIT'] . '" />',
 		'ICON_EDIT_DISABLED'		=> '<img src="' . $phpbb_admin_path . 'images/icon_edit_disabled.gif" alt="' . $user->lang['EDIT'] . '" title="' . $user->lang['EDIT'] . '" />',
 		'ICON_DELETE'				=> '<img src="' . $phpbb_admin_path . 'images/icon_delete.gif" alt="' . $user->lang['DELETE'] . '" title="' . $user->lang['DELETE'] . '" />',
@@ -198,6 +199,7 @@ function adm_page_footer($copyright_html = true)
 		'DEBUG_OUTPUT'		=> (defined('DEBUG')) ? $debug_output : '',
 		'TRANSLATION_INFO'	=> (!empty($user->lang['TRANSLATION_INFO'])) ? $user->lang['TRANSLATION_INFO'] : '',
 		'S_COPYRIGHT_HTML'	=> $copyright_html,
+		'CREDIT_LINE'		=> $user->lang('POWERED_BY', '<a href="http://www.phpbb.com/">phpBB</a>&reg; Forum Software &copy; phpBB Group'),
 		'VERSION'			=> $config['version'])
 	);
 
@@ -236,7 +238,7 @@ function build_select($option_ary, $option_default = false)
 /**
 * Build radio fields in acp pages
 */
-function h_radio($name, &$input_ary, $input_default = false, $id = false, $key = false)
+function h_radio($name, $input_ary, $input_default = false, $id = false, $key = false, $separator = '')
 {
 	global $user;
 
@@ -245,7 +247,7 @@ function h_radio($name, &$input_ary, $input_default = false, $id = false, $key =
 	foreach ($input_ary as $value => $title)
 	{
 		$selected = ($input_default !== false && $value == $input_default) ? ' checked="checked"' : '';
-		$html .= '<label><input type="radio" name="' . $name . '"' . (($id && !$id_assigned) ? ' id="' . $id . '"' : '') . ' value="' . $value . '"' . $selected . (($key) ? ' accesskey="' . $key . '"' : '') . ' class="radio" /> ' . $user->lang[$title] . '</label>';
+		$html .= '<label><input type="radio" name="' . $name . '"' . (($id && !$id_assigned) ? ' id="' . $id . '"' : '') . ' value="' . $value . '"' . $selected . (($key) ? ' accesskey="' . $key . '"' : '') . ' class="radio" /> ' . $user->lang[$title] . '</label>' . $separator;
 		$id_assigned = true;
 	}
 
@@ -262,6 +264,12 @@ function build_cfg_template($tpl_type, $key, &$new, $config_key, $vars)
 	$tpl = '';
 	$name = 'config[' . $config_key . ']';
 
+	// Make sure there is no notice printed out for non-existent config options (we simply set them)
+	if (!isset($new[$config_key]))
+	{
+		$new[$config_key] = '';
+	}
+
 	switch ($tpl_type[0])
 	{
 		case 'text':
@@ -269,7 +277,7 @@ function build_cfg_template($tpl_type, $key, &$new, $config_key, $vars)
 			$size = (int) $tpl_type[1];
 			$maxlength = (int) $tpl_type[2];
 
-			$tpl = '<input id="' . $key . '" type="' . $tpl_type[0] . '"' . (($size) ? ' size="' . $size . '"' : '') . ' maxlength="' . (($maxlength) ? $maxlength : 255) . '" name="' . $name . '" value="' . $new[$config_key] . '" />';
+			$tpl = '<input id="' . $key . '" type="' . $tpl_type[0] . '"' . (($size) ? ' size="' . $size . '"' : '') . ' maxlength="' . (($maxlength) ? $maxlength : 255) . '" name="' . $name . '" value="' . $new[$config_key] . '"' . (($tpl_type[0] === 'password') ?  ' autocomplete="off"' : '') . ' />';
 		break;
 
 		case 'dimension':
@@ -301,7 +309,7 @@ function build_cfg_template($tpl_type, $key, &$new, $config_key, $vars)
 
 		case 'select':
 		case 'custom':
-			
+
 			$return = '';
 
 			if (isset($vars['method']))
@@ -340,7 +348,7 @@ function build_cfg_template($tpl_type, $key, &$new, $config_key, $vars)
 			{
 				$args = array($new[$config_key], $key);
 			}
-			
+
 			$return = call_user_func_array($call, $args);
 
 			if ($tpl_type[0] == 'select')
@@ -376,26 +384,26 @@ function validate_config_vars($config_vars, &$cfg_array, &$error)
 	$type	= 0;
 	$min	= 1;
 	$max	= 2;
-	
+
 	foreach ($config_vars as $config_name => $config_definition)
 	{
 		if (!isset($cfg_array[$config_name]) || strpos($config_name, 'legend') !== false)
 		{
 			continue;
 		}
-	
+
 		if (!isset($config_definition['validate']))
 		{
 			continue;
 		}
-		
+
 		$validator = explode(':', $config_definition['validate']);
 
 		// Validate a bit. ;) (0 = type, 1 = min, 2= max)
 		switch ($validator[$type])
 		{
 			case 'string':
-				$length = strlen($cfg_array[$config_name]);
+				$length = utf8_strlen($cfg_array[$config_name]);
 
 				// the column is a VARCHAR
 				$validator[$max] = (isset($validator[$max])) ? min(255, $validator[$max]) : 255;
@@ -424,6 +432,20 @@ function validate_config_vars($config_vars, &$cfg_array, &$error)
 				else if (isset($validator[$max]) && $cfg_array[$config_name] > $validator[$max])
 				{
 					$error[] = sprintf($user->lang['SETTING_TOO_BIG'], $user->lang[$config_definition['lang']], $validator[$max]);
+				}
+
+				if (strpos($config_name, '_max') !== false)
+				{
+					// Min/max pairs of settings should ensure that min <= max
+					// Replace _max with _min to find the name of the minimum
+					// corresponding configuration variable
+					$min_name = str_replace('_max', '_min', $config_name);
+
+					if (isset($cfg_array[$min_name]) && is_numeric($cfg_array[$min_name]) && $cfg_array[$config_name] < $cfg_array[$min_name])
+					{
+						// A minimum value exists and the maximum value is less than it
+						$error[] = sprintf($user->lang['SETTING_TOO_LOW'], $user->lang[$config_definition['lang']], (int) $cfg_array[$min_name]);
+					}
 				}
 			break;
 
@@ -526,7 +548,7 @@ function validate_config_vars($config_vars, &$cfg_array, &$error)
 				// Check if the path is writable
 				if ($config_definition['validate'] == 'wpath' || $config_definition['validate'] == 'rwpath')
 				{
-					if (file_exists($phpbb_root_path . $cfg_array[$config_name]) && !@is_writable($phpbb_root_path . $cfg_array[$config_name]))
+					if (file_exists($phpbb_root_path . $cfg_array[$config_name]) && !phpbb_is_writable($phpbb_root_path . $cfg_array[$config_name]))
 					{
 						$error[] = sprintf($user->lang['DIRECTORY_NOT_WRITABLE'], $cfg_array[$config_name]);
 					}
@@ -547,14 +569,18 @@ function validate_config_vars($config_vars, &$cfg_array, &$error)
 function validate_range($value_ary, &$error)
 {
 	global $user;
-	
+
 	$column_types = array(
 		'BOOL'	=> array('php_type' => 'int', 		'min' => 0, 				'max' => 1),
 		'USINT'	=> array('php_type' => 'int',		'min' => 0, 				'max' => 65535),
 		'UINT'	=> array('php_type' => 'int', 		'min' => 0, 				'max' => (int) 0x7fffffff),
-		'INT'	=> array('php_type' => 'int', 		'min' => (int) 0x80000000, 	'max' => (int) 0x7fffffff),
+		// Do not use (int) 0x80000000 - it evaluates to different
+		// values on 32-bit and 64-bit systems.
+		// Apparently -2147483648 is a float on 32-bit systems,
+		// despite fitting in an int, thus explicit cast is needed.
+		'INT'	=> array('php_type' => 'int', 		'min' => (int) -2147483648,	'max' => (int) 0x7fffffff),
 		'TINT'	=> array('php_type' => 'int',		'min' => -128,				'max' => 127),
-		
+
 		'VCHAR'	=> array('php_type' => 'string', 	'min' => 0, 				'max' => 255),
 	);
 	foreach ($value_ary as $value)
@@ -575,13 +601,13 @@ function validate_range($value_ary, &$error)
 		{
 			case 'string' :
 				$max = (isset($column[1])) ? min($column[1],$type['max']) : $type['max'];
-				if (strlen($value['value']) > $max)
+				if (utf8_strlen($value['value']) > $max)
 				{
 					$error[] = sprintf($user->lang['SETTING_TOO_LONG'], $user->lang[$value['lang']], $max);
 				}
 			break;
 
-			case 'int': 
+			case 'int':
 				$min = (isset($column[1])) ? max($column[1],$type['min']) : $type['min'];
 				$max = (isset($column[2])) ? min($column[2],$type['max']) : $type['max'];
 				if ($value['value'] < $min)

@@ -1,4 +1,4 @@
-/* proSilver Control Panel Styles
+/* Control Panel Styles
 ---------------------------------------- */
 
 
@@ -102,6 +102,22 @@ ul.cplist {
 /* MCP Specific tweaks */
 .mcp-main .postbody {
 	width: 100%;
+}
+
+.tabs-container h2 {
+	float: left;
+	margin-bottom: 0px;
+}
+
+.tabs-container #minitabs {
+	float: right;
+	margin-top: 19px;
+}
+
+.tabs-container:after {
+	display: block;
+	clear: both;
+	content: '';
 }
 
 /* CP tabbed menu
@@ -348,6 +364,20 @@ dl.mini dd {
 	line-height: 2.5em;
 }
 
+/* PM panel adjustments */
+.reply-all a.left {
+	background-position: 3px 60%;
+}
+
+.reply-all a.left:hover {
+	background-position: 0px 60%;
+}
+
+.reply-all {
+	font-size: 11px;
+	padding-top: 5px;
+}
+
 /* PM Message history */
 .current {
 	color: #999999;
@@ -365,13 +395,11 @@ ol.def-rules li {
 
 /* PM marking colours */
 .pmlist li.bg1 {
-	border: solid 3px transparent;
-	border-width: 0 3px;
+	padding: 0 3px;
 }
 
 .pmlist li.bg2 {
-	border: solid 3px transparent;
-	border-width: 0 3px;
+	padding: 0 3px;
 }
 
 .pmlist li.pm_message_reported_colour, .pm_message_reported_colour {
@@ -380,21 +408,25 @@ ol.def-rules li {
 }
 
 .pmlist li.pm_marked_colour, .pm_marked_colour {
+	padding: 0;
 	border: solid 3px #ffffff;
 	border-width: 0 3px;
 }
 
 .pmlist li.pm_replied_colour, .pm_replied_colour {
+	padding: 0;
 	border: solid 3px #c2c2c2;
-	border-width: 0 3px;	
+	border-width: 0 3px;
 }
 
 .pmlist li.pm_friend_colour, .pm_friend_colour {
+	padding: 0;
 	border: solid 3px #bdbdbd;
 	border-width: 0 3px;
 }
 
 .pmlist li.pm_foe_colour, .pm_foe_colour {
+	padding: 0;
 	border: solid 3px #000000;
 	border-width: 0 3px;
 }

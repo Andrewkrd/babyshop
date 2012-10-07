@@ -3,7 +3,7 @@
 * acp_permissions (phpBB Permission Set) [Russian]
 *
 * @package language
-* @version $Id: permissions_phpbb.php,v 1.29 2007/10/04 15:07:24 acydburn Exp $
+* @version $Id: permissions_phpbb.php 9686 2009-06-26 11:52:54Z rxu $
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 */
@@ -111,7 +111,8 @@ $lang = array_merge($lang, array(
 	'acl_u_sig'			=> array('lang' => 'Может использовать подпись', 'cat' => 'post'),
 
 	'acl_u_sendpm'		=> array('lang' => 'Может посылать ЛС', 'cat' => 'pm'),
-	'acl_u_masspm'		=> array('lang' => 'Может рассылать массовые ЛС', 'cat' => 'pm'),
+	'acl_u_masspm'		=> array('lang' => 'Может рассылать ЛС нескольким пользователям', 'cat' => 'pm'),
+	'acl_u_masspm_group'=> array('lang' => 'Может рассылать ЛС группам пользователей', 'cat' => 'pm'),
 	'acl_u_readpm'		=> array('lang' => 'Может читать ЛС', 'cat' => 'pm'),
 	'acl_u_pm_edit'		=> array('lang' => 'Может редактировать собственные ЛС', 'cat' => 'pm'),
 	'acl_u_pm_delete'	=> array('lang' => 'Может удалять ЛС из своих папок', 'cat' => 'pm'),
@@ -121,9 +122,9 @@ $lang = array_merge($lang, array(
 	'acl_u_pm_attach'	=> array('lang' => 'Может прикреплять вложения в ЛС', 'cat' => 'pm'),
 	'acl_u_pm_download'	=> array('lang' => 'Может скачивать файлы из ЛС', 'cat' => 'pm'),
 	'acl_u_pm_bbcode'	=> array('lang' => 'Может использовать BBCode в ЛС', 'cat' => 'pm'),
-	'acl_u_pm_smilies'	=> array('lang' => 'Может использовать смайлы в ЛС', 'cat' => 'pm'),
-	'acl_u_pm_img'		=> array('lang' => 'Может вкладывать изображения в ЛС', 'cat' => 'pm'),
-	'acl_u_pm_flash'	=> array('lang' => 'Может вкладывать флэш-файлы в ЛС', 'cat' => 'pm'),
+	'acl_u_pm_smilies'	=> array('lang' => 'Может использовать смайлики в ЛС', 'cat' => 'pm'),
+	'acl_u_pm_img'		=> array('lang' => 'Может использовать тег [img] в ЛС', 'cat' => 'pm'),
+	'acl_u_pm_flash'	=> array('lang' => 'Может использовать тег [flash] в ЛС', 'cat' => 'pm'),
 
 	'acl_u_sendemail'	=> array('lang' => 'Может посылать email-сообщения', 'cat' => 'misc'),
 	'acl_u_sendim'		=> array('lang' => 'Может использовать систему мгновенных сообщений', 'cat' => 'misc'),
@@ -151,9 +152,9 @@ $lang = array_merge($lang, array(
 	'acl_f_download'	=> array('lang' => 'Может скачивать файлы', 'cat' => 'content'),
 	'acl_f_sigs'		=> array('lang' => 'Может использовать подпись', 'cat' => 'content'),
 	'acl_f_bbcode'		=> array('lang' => 'Может использовать BBCode', 'cat' => 'content'),
-	'acl_f_smilies'		=> array('lang' => 'Может использовать смайлы', 'cat' => 'content'),
-	'acl_f_img'			=> array('lang' => 'Может вкладывать изображения', 'cat' => 'content'),
-	'acl_f_flash'		=> array('lang' => 'Может вкладывать флэш-файлы', 'cat' => 'content'),
+	'acl_f_smilies'		=> array('lang' => 'Может использовать смайлики', 'cat' => 'content'),
+	'acl_f_img'			=> array('lang' => 'Может использовать тег [img]', 'cat' => 'content'),
+	'acl_f_flash'		=> array('lang' => 'Может использовать тег [flash]', 'cat' => 'content'),
 
 	'acl_f_edit'		=> array('lang' => 'Может редактировать собственные сообщения', 'cat' => 'actions'),
 	'acl_f_delete'		=> array('lang' => 'Может удалять собственные сообщения', 'cat' => 'actions'),
@@ -166,7 +167,7 @@ $lang = array_merge($lang, array(
 
 	'acl_f_search'		=> array('lang' => 'Может использовать поиск в форуме', 'cat' => 'misc'),
 	'acl_f_ignoreflood' => array('lang' => 'Может игнорировать флуд-контроль', 'cat' => 'misc'),
-	'acl_f_postcount'	=> array('lang' => 'Счётчик сообщений включен<br /><em>Учтите, что данная установка эффективна только при создании новых сообщений.</em>', 'cat' => 'misc'),
+	'acl_f_postcount'	=> array('lang' => 'Счётчик сообщений включён<br /><em>Учтите, что данная установка эффективна только при создании новых сообщений.</em>', 'cat' => 'misc'),
 	'acl_f_noapprove'	=> array('lang' => 'Может размещать сообщения без одобрения', 'cat' => 'misc'),
 ));
 

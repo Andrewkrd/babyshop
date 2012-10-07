@@ -2,7 +2,7 @@
 /**
 *
 * @package phpBB3
-* @version $Id: functions_compress.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -53,13 +53,18 @@ class compress
 			$filelist = filelist("$phpbb_root_path$src", '', '*');
 			krsort($filelist);
 
+			/**
+			* Commented out, as adding the folders produces corrupted archives
 			if ($src_path)
 			{
 				$this->data($src_path, '', true, stat("$phpbb_root_path$src"));
 			}
+			*/
 
 			foreach ($filelist as $path => $file_ary)
 			{
+				/**
+				* Commented out, as adding the folders produces corrupted archives
 				if ($path)
 				{
 					// Same as for src_path
@@ -68,6 +73,7 @@ class compress
 
 					$this->data("$src_path$path", '', true, stat("$phpbb_root_path$src$path"));
 				}
+				*/
 
 				foreach ($file_ary as $file)
 				{
@@ -80,6 +86,11 @@ class compress
 				}
 			}
 		}
+		else
+		{
+			// $src does not exist
+			return false;
+		}
 
 		return true;
 	}
@@ -89,6 +100,11 @@ class compress
 	*/
 	function add_custom_file($src, $filename)
 	{
+		if (!file_exists($src))
+		{
+			return false;
+		}
+
 		$this->data($filename, file_get_contents($src), false, stat($src));
 		return true;
 	}
@@ -155,7 +171,12 @@ class compress_zip extends compress
 	*/
 	function compress_zip($mode, $file)
 	{
-		return $this->fp = @fopen($file, $mode . 'b');
+		$this->fp = @fopen($file, $mode . 'b');
+
+		if (!$this->fp)
+		{
+			trigger_error('Unable to open file ' . $file . ' [' . $mode . 'b]');
+		}
 	}
 
 	/**
@@ -179,7 +200,7 @@ class compress_zip extends compress
 	* Extract archive
 	*/
 	function extract($dst)
-	{		
+	{
 		// Loop the file, looking for files and folders
 		$dd_try = false;
 		rewind($this->fp);
@@ -215,6 +236,12 @@ class compress_zip extends compress
 							// Create and folders and subfolders if they do not exist
 							foreach ($folders as $folder)
 							{
+								$folder = trim($folder);
+								if (!$folder)
+								{
+									continue;
+								}
+
 								$str = (!empty($str)) ? $str . '/' . $folder : $folder;
 								if (!is_dir($str))
 								{
@@ -222,7 +249,7 @@ class compress_zip extends compress
 									{
 										trigger_error("Could not create directory $folder");
 									}
-									@chmod($str, 0777);
+									phpbb_chmod($str, CHMOD_READ | CHMOD_WRITE);
 								}
 							}
 						}
@@ -231,13 +258,19 @@ class compress_zip extends compress
 					}
 					else
 					{
-						// Some archivers are punks, they don't don't include folders in their archives!
+						// Some archivers are punks, they don't include folders in their archives!
 						$str = '';
 						$folders = explode('/', pathinfo($target_filename, PATHINFO_DIRNAME));
 
 						// Create and folders and subfolders if they do not exist
 						foreach ($folders as $folder)
 						{
+							$folder = trim($folder);
+							if (!$folder)
+							{
+								continue;
+							}
+
 							$str = (!empty($str)) ? $str . '/' . $folder : $folder;
 							if (!is_dir($str))
 							{
@@ -245,7 +278,7 @@ class compress_zip extends compress
 								{
 									trigger_error("Could not create directory $folder");
 								}
-								@chmod($str, 0777);
+								phpbb_chmod($str, CHMOD_READ | CHMOD_WRITE);
 							}
 						}
 					}
@@ -267,7 +300,7 @@ class compress_zip extends compress
 							// Not compressed
 							fwrite($fp, $content);
 						break;
-					
+
 						case 8:
 							// Deflate
 							fwrite($fp, gzinflate($content, $data['uc_size']));
@@ -278,7 +311,7 @@ class compress_zip extends compress
 							fwrite($fp, bzdecompress($content));
 						break;
 					}
-					
+
 					fclose($fp);
 				break;
 
@@ -288,11 +321,11 @@ class compress_zip extends compress
 				// This case should simply never happen.. but it does exist..
 				case "\x50\x4b\x05\x06":
 				break 2;
-				
+
 				// 'Packed to Removable Disk', ignore it and look for the next signature...
 				case 'PK00':
 				continue 2;
-				
+
 				// We have encountered a header that is weird. Lets look for better data...
 				default:
 					if (!$dd_try)
@@ -475,8 +508,8 @@ class compress_tar extends compress
 	function compress_tar($mode, $file, $type = '')
 	{
 		$type = (!$type) ? $file : $type;
-		$this->isgz = (strpos($type, '.tar.gz') !== false || strpos($type, '.tgz') !== false) ? true : false;
-		$this->isbz = (strpos($type, '.tar.bz2') !== false) ? true : false;
+		$this->isgz = preg_match('#(\.tar\.gz|\.tgz)$#', $type);
+		$this->isbz = preg_match('#\.tar\.bz2$#', $type);
 
 		$this->mode = &$mode;
 		$this->file = &$file;
@@ -507,16 +540,24 @@ class compress_tar extends compress
 				$tmp = unpack('A12size', substr($buffer, 124, 12));
 				$filesize = octdec((int) trim($tmp['size']));
 
+				$target_filename = "$dst$filename";
+
 				if ($filetype == 5)
 				{
-					if (!is_dir("$dst$filename"))
+					if (!is_dir($target_filename))
 					{
 						$str = '';
-						$folders = explode('/', "$dst$filename");
+						$folders = explode('/', $target_filename);
 
 						// Create and folders and subfolders if they do not exist
 						foreach ($folders as $folder)
 						{
+							$folder = trim($folder);
+							if (!$folder)
+							{
+								continue;
+							}
+
 							$str = (!empty($str)) ? $str . '/' . $folder : $folder;
 							if (!is_dir($str))
 							{
@@ -524,22 +565,46 @@ class compress_tar extends compress
 								{
 									trigger_error("Could not create directory $folder");
 								}
-								@chmod($str, 0777);
+								phpbb_chmod($str, CHMOD_READ | CHMOD_WRITE);
 							}
 						}
 					}
 				}
-				else if ($filesize != 0 && ($filetype == 0 || $filetype == "\0"))
+				else if ($filesize >= 0 && ($filetype == 0 || $filetype == "\0"))
 				{
+					// Some archivers are punks, they don't properly order the folders in their archives!
+					$str = '';
+					$folders = explode('/', pathinfo($target_filename, PATHINFO_DIRNAME));
+
+					// Create and folders and subfolders if they do not exist
+					foreach ($folders as $folder)
+					{
+						$folder = trim($folder);
+						if (!$folder)
+						{
+							continue;
+						}
+
+						$str = (!empty($str)) ? $str . '/' . $folder : $folder;
+						if (!is_dir($str))
+						{
+							if (!@mkdir($str, 0777))
+							{
+								trigger_error("Could not create directory $folder");
+							}
+							phpbb_chmod($str, CHMOD_READ | CHMOD_WRITE);
+						}
+					}
+
 					// Write out the files
-					if (!($fp = fopen("$dst$filename", 'wb')))
+					if (!($fp = fopen($target_filename, 'wb')))
 					{
 						trigger_error("Couldn't create file $filename");
 					}
-					@chmod("$dst$filename", 0777);
+					phpbb_chmod($target_filename, CHMOD_READ);
 
 					// Grab the file contents
-					fwrite($fp, $fzread($this->fp, ($filesize + 511) &~ 511), $filesize);
+					fwrite($fp, ($filesize) ? $fzread($this->fp, ($filesize + 511) &~ 511) : '', $filesize);
 					fclose($fp);
 				}
 			}

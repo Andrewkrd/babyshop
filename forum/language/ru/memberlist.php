@@ -1,12 +1,12 @@
 <?php
-/** 
+/**
 *
 * memberlist [Russian]
 *
 * @package language
-* @version $Id: memberlist.php,v 1.35 2007/10/04 15:07:24 acydburn Exp $
-* @copyright (c) 2005 phpBB Group 
-* @license http://opensource.org/licenses/gpl-license.php GNU Public License 
+* @version $Id: memberlist.php 9933 2009-08-06 09:12:21Z marshalrusty $
+* @copyright (c) 2005 phpBB Group
+* @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
 */
 
@@ -15,7 +15,7 @@
 */
 if (!defined('IN_PHPBB'))
 {
-   exit;
+	exit;
 }
 
 if (empty($lang) || !is_array($lang))
@@ -64,7 +64,7 @@ $lang = array_merge($lang, array(
 	'EMPTY_SUBJECT_EMAIL'	=> 'Вы должны указать тему сообщения.',
 	'EQUAL_TO'				=> 'равно',
 
-	'FIND_USERNAME_EXPLAIN'	=> 'Здесь вы можете осуществить поиск конкретных пользователей. Не обязательно заполнять все поля. Для поиска по шаблону используйте *. При вводе дат применяйте формат <kbd>ГГГГ-ММ-ДД</kbd>, например, <samp>2004-02-29</samp>. Отметьте галочкой одного или более пользователей (если предыдущая форма допускает множественный выбор) и нажмите кнопку "Выбрать отмеченных", чтобы вернуться назад.',
+	'FIND_USERNAME_EXPLAIN'	=> 'Здесь вы можете осуществить поиск конкретных пользователей. Не обязательно заполнять все поля. Для поиска по шаблону используйте *. При вводе дат применяйте формат <kbd>ГГГГ-ММ-ДД</kbd>, например, <samp>2004-02-29</samp>. Отметьте галочкой одного или более пользователей (если предыдущая форма допускает множественный выбор) и нажмите кнопку «Выбрать отмеченных», чтобы вернуться назад.',
 	'FLOOD_EMAIL_LIMIT'		=> 'Вы не можете отправить ещё один email сразу после предыдущего. Пожалуйста, попробуйте чуть позже.',
 
 	'GROUP_LEADER'			=> 'Лидер группы',
@@ -90,7 +90,7 @@ $lang = array_merge($lang, array(
 	'IM_SEND_MESSAGE'		=> 'Отправить сообщение',
 	'IM_SENT_JABBER'		=> 'Ваше сообщение для %1$s было успешно отправлено.',
 	'IM_USER'				=> 'Отправить мгновенное сообщение',
-	
+
 	'LAST_ACTIVE'				=> 'Последнее посещение',
 	'LESS_THAN'					=> 'меньше',
 	'LIST_USER'					=> 'Пользователей: 1',
@@ -110,13 +110,11 @@ $lang = array_merge($lang, array(
 
 	'POST_IP'				=> 'IP/Хост',
 
-	'RANK'					=> 'Звание',
 	'REAL_NAME'				=> 'Имя получателя',
 	'RECIPIENT'				=> 'Получатель',
 	'REMOVE_FOE'			=> 'Убрать из недругов',
 	'REMOVE_FRIEND'			=> 'Убрать из друзей',
 
-	'SEARCH_USER_POSTS'		=> 'Найти сообщения пользователя',
 	'SELECT_MARKED'			=> 'Выбрать отмеченных',
 	'SELECT_SORT_METHOD'	=> 'Поле сортировки',
 	'SEND_AIM_MESSAGE'		=> 'Отправить AIM-сообщение',
@@ -132,7 +130,12 @@ $lang = array_merge($lang, array(
 
 	'USERNAME_BEGINS_WITH'	=> 'Имя пользователя начинается с',
 	'USER_ADMIN'			=> 'Администрировать',
+	'USER_BAN'				=> 'Блокировка',
 	'USER_FORUM'			=> 'Статистика пользователя',
+	'USER_LAST_REMINDED'	=> array(
+		0		=> 'Нет напоминаний, отправленных в это время',
+		1		=> 'Отправлено %1$d напоминание<br />» %2$s',
+	),
 	'USER_ONLINE'			=> 'В сети',
 	'USER_PRESENCE'			=> 'Присутствие на конференции',
 

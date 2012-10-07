@@ -2,7 +2,7 @@
 /**
 *
 * @package dbal
-* @version $Id: mssql_odbc.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -40,8 +40,10 @@ class dbal_mssql_odbc extends dbal
 	{
 		$this->persistency = $persistency;
 		$this->user = $sqluser;
-		$this->server = $sqlserver . (($port) ? ':' . $port : '');
 		$this->dbname = $database;
+
+		$port_delimiter = (defined('PHP_OS') && substr(PHP_OS, 0, 3) === 'WIN') ? ',' : ':';
+		$this->server = $sqlserver . (($port) ? $port_delimiter . $port : '');
 
 		$max_size = @ini_get('odbc.defaultlrl');
 		if (!empty($max_size))
@@ -73,24 +75,39 @@ class dbal_mssql_odbc extends dbal
 
 	/**
 	* Version information about used database
+	* @param bool $raw if true, only return the fetched sql_server_version
+	* @param bool $use_cache If true, it is safe to retrieve the value from the cache
+	* @return string sql server version
 	*/
-	function sql_server_info()
+	function sql_server_info($raw = false, $use_cache = true)
 	{
-		$result_id = @odbc_exec($this->db_connect_id, "SELECT SERVERPROPERTY('productversion'), SERVERPROPERTY('productlevel'), SERVERPROPERTY('edition')");
+		global $cache;
 
-		$row = false;
-		if ($result_id)
+		if (!$use_cache || empty($cache) || ($this->sql_server_version = $cache->get('mssqlodbc_version')) === false)
 		{
-			$row = @odbc_fetch_array($result_id);
-			@odbc_free_result($result_id);
+			$result_id = @odbc_exec($this->db_connect_id, "SELECT SERVERPROPERTY('productversion'), SERVERPROPERTY('productlevel'), SERVERPROPERTY('edition')");
+
+			$row = false;
+			if ($result_id)
+			{
+				$row = @odbc_fetch_array($result_id);
+				@odbc_free_result($result_id);
+			}
+
+			$this->sql_server_version = ($row) ? trim(implode(' ', $row)) : 0;
+
+			if (!empty($cache) && $use_cache)
+			{
+				$cache->put('mssqlodbc_version', $this->sql_server_version);
+			}
 		}
 
-		if ($row)
+		if ($raw)
 		{
-			return 'MSSQL (ODBC)<br />' . implode(' ', $row);
+			return $this->sql_server_version;
 		}
 
-		return 'MSSQL (ODBC)';
+		return ($this->sql_server_version) ? 'MSSQL (ODBC)<br />' . $this->sql_server_version : 'MSSQL (ODBC)';
 	}
 
 	/**
@@ -174,7 +191,7 @@ class dbal_mssql_odbc extends dbal
 			return false;
 		}
 
-		return ($this->query_result) ? $this->query_result : false;
+		return $this->query_result;
 	}
 
 	/**
@@ -239,49 +256,6 @@ class dbal_mssql_odbc extends dbal
 	}
 
 	/**
-	* Seek to given row number
-	* rownum is zero-based
-	*/
-	function sql_rowseek($rownum, &$query_id)
-	{
-		global $cache;
-
-		if ($query_id === false)
-		{
-			$query_id = $this->query_result;
-		}
-
-		if (isset($cache->sql_rowset[$query_id]))
-		{
-			return $cache->sql_rowseek($rownum, $query_id);
-		}
-
-		if ($query_id === false)
-		{
-			return false;
-		}
-
-		$this->sql_freeresult($query_id);
-		$query_id = $this->sql_query($this->last_query_text);
-
-		if ($query_id === false)
-		{
-			return false;
-		}
-
-		// We do not fetch the row for rownum == 0 because then the next resultset would be the second row
-		for ($i = 0; $i < $rownum; $i++)
-		{
-			if (!$this->sql_fetchrow($query_id))
-			{
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/**
 	* Get last inserted id after insert statement
 	*/
 	function sql_nextid()
@@ -333,7 +307,15 @@ class dbal_mssql_odbc extends dbal
 	*/
 	function sql_escape($msg)
 	{
-		return str_replace("'", "''", $msg);
+		return str_replace(array("'", "\0"), array("''", ''), $msg);
+	}
+
+	/**
+	* {@inheritDoc}
+	*/
+	function sql_lower_text($column_name)
+	{
+		return "LOWER(SUBSTRING($column_name, 1, DATALENGTH($column_name)))";
 	}
 
 	/**

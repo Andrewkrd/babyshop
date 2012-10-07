@@ -6,7 +6,7 @@
 * Authentication plug-ins is largely down to Sergey Kanareykin, our thanks to him.
 *
 * @package login
-* @version $Id: auth_ldap.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -63,16 +63,18 @@ function init_ldap()
 	// ldap_connect only checks whether the specified server is valid, so the connection might still fail
 	$search = @ldap_search(
 		$ldap,
-		$config['ldap_base_dn'],
+		htmlspecialchars_decode($config['ldap_base_dn']),
 		ldap_user_filter($user->data['username']),
-		(empty($config['ldap_email'])) ? array($config['ldap_uid']) : array($config['ldap_uid'], $config['ldap_email']),
+		(empty($config['ldap_email'])) ?
+			array(htmlspecialchars_decode($config['ldap_uid'])) :
+			array(htmlspecialchars_decode($config['ldap_uid']), htmlspecialchars_decode($config['ldap_email'])),
 		0,
 		1
 	);
 
 	if ($search === false)
 	{
-		return $user->lang['LDAP_NO_SERVER_CONNECTION'];
+		return $user->lang['LDAP_SEARCH_FAILED'];
 	}
 
 	$result = @ldap_get_entries($ldap, $search);
@@ -85,7 +87,7 @@ function init_ldap()
 		return sprintf($user->lang['LDAP_NO_IDENTITY'], $user->data['username']);
 	}
 
-	if (!empty($config['ldap_email']) && !isset($result[0][$config['ldap_email']]))
+	if (!empty($config['ldap_email']) && !isset($result[0][htmlspecialchars_decode($config['ldap_email'])]))
 	{
 		return $user->lang['LDAP_NO_EMAIL'];
 	}
@@ -152,17 +154,23 @@ function login_ldap(&$username, &$password)
 
 	if ($config['ldap_user'] || $config['ldap_password'])
 	{
-		if (!@ldap_bind($ldap, $config['ldap_user'], htmlspecialchars_decode($config['ldap_password'])))
+		if (!@ldap_bind($ldap, htmlspecialchars_decode($config['ldap_user']), htmlspecialchars_decode($config['ldap_password'])))
 		{
-			return $user->lang['LDAP_NO_SERVER_CONNECTION'];
+			return array(
+				'status'		=> LOGIN_ERROR_EXTERNAL_AUTH,
+				'error_msg'		=> 'LDAP_NO_SERVER_CONNECTION',
+				'user_row'		=> array('user_id' => ANONYMOUS),
+			);
 		}
 	}
 
 	$search = @ldap_search(
 		$ldap,
-		$config['ldap_base_dn'],
+		htmlspecialchars_decode($config['ldap_base_dn']),
 		ldap_user_filter($username),
-		(empty($config['ldap_email'])) ? array($config['ldap_uid']) : array($config['ldap_uid'], $config['ldap_email']),
+		(empty($config['ldap_email'])) ?
+			array(htmlspecialchars_decode($config['ldap_uid'])) :
+			array(htmlspecialchars_decode($config['ldap_uid']), htmlspecialchars_decode($config['ldap_email'])),
 		0,
 		1
 	);
@@ -223,10 +231,11 @@ function login_ldap(&$username, &$password)
 				$ldap_user_row = array(
 					'username'		=> $username,
 					'user_password'	=> phpbb_hash($password),
-					'user_email'	=> (!empty($config['ldap_email'])) ? $ldap_result[0][$config['ldap_email']][0] : '',
+					'user_email'	=> (!empty($config['ldap_email'])) ? utf8_htmlspecialchars($ldap_result[0][htmlspecialchars_decode($config['ldap_email'])][0]) : '',
 					'group_id'		=> (int) $row['group_id'],
 					'user_type'		=> USER_NORMAL,
 					'user_ip'		=> $user->ip,
+					'user_new'		=> ($config['new_member_post_limit']) ? 1 : 0,
 				);
 
 				unset($ldap_result);
@@ -276,7 +285,8 @@ function ldap_user_filter($username)
 	$filter = '(' . $config['ldap_uid'] . '=' . ldap_escape(htmlspecialchars_decode($username)) . ')';
 	if ($config['ldap_user_filter'])
 	{
-		$filter = "(&$filter({$config['ldap_user_filter']}))";
+		$_filter = ($config['ldap_user_filter'][0] == '(' && substr($config['ldap_user_filter'], -1) == ')') ? $config['ldap_user_filter'] : "({$config['ldap_user_filter']})";
+		$filter = "(&{$filter}{$_filter})";
 	}
 	return $filter;
 }
@@ -329,7 +339,7 @@ function acp_ldap(&$new)
 	</dl>
 	<dl>
 		<dt><label for="ldap_password">' . $user->lang['LDAP_PASSWORD'] . ':</label><br /><span>' . $user->lang['LDAP_PASSWORD_EXPLAIN'] . '</span></dt>
-		<dd><input type="password" id="ldap_password" size="40" name="config[ldap_password]" value="' . $new['ldap_password'] . '" /></dd>
+		<dd><input type="password" id="ldap_password" size="40" name="config[ldap_password]" value="' . $new['ldap_password'] . '" autocomplete="off" /></dd>
 	</dl>
 	';
 

@@ -1,7 +1,7 @@
 <?php
 /**
 * @package ucp
-* @version $Id: ucp_pm.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -115,29 +115,28 @@ class ucp_pm
 			case 'compose':
 				$action = request_var('action', 'post');
 
-				get_folder($user->data['user_id']);
+				$user_folders = get_folder($user->data['user_id']);
 
 				if (!$auth->acl_get('u_sendpm'))
 				{
-					trigger_error('NO_AUTH_SEND_MESSAGE');
+					// trigger_error('NO_AUTH_SEND_MESSAGE');
+					$template->assign_vars(array(
+						'S_NO_AUTH_SEND_MESSAGE'	=> true,
+						'S_COMPOSE_PM_VIEW'			=> true,
+					));
+
+					$tpl_file = 'ucp_pm_viewfolder';
+					break;
 				}
 
 				include($phpbb_root_path . 'includes/ucp/ucp_pm_compose.' . $phpEx);
-				compose_pm($id, $mode, $action);
+				compose_pm($id, $mode, $action, $user_folders);
 
 				$tpl_file = 'posting_body';
 			break;
 
 			case 'options':
-				$sql = 'SELECT group_message_limit
-					FROM ' . GROUPS_TABLE . '
-					WHERE group_id = ' . $user->data['group_id'];
-				$result = $db->sql_query($sql, 3600);
-				$message_limit = (int) $db->sql_fetchfield('group_message_limit');
-				$db->sql_freeresult($result);
-
-				$user->data['message_limit'] = (!$message_limit) ? $config['pm_max_msgs'] : $message_limit;
-
+				set_user_message_limit();
 				get_folder($user->data['user_id']);
 
 				include($phpbb_root_path . 'includes/ucp/ucp_pm_options.' . $phpEx);
@@ -168,14 +167,7 @@ class ucp_pm
 
 			case 'view':
 
-				$sql = 'SELECT group_message_limit
-					FROM ' . GROUPS_TABLE . '
-					WHERE group_id = ' . $user->data['group_id'];
-				$result = $db->sql_query($sql, 3600);
-				$message_limit = (int) $db->sql_fetchfield('group_message_limit');
-				$db->sql_freeresult($result);
-
-				$user->data['message_limit'] = (!$message_limit) ? $config['pm_max_msgs'] : $message_limit;
+				set_user_message_limit();
 
 				if ($folder_specified)
 				{
@@ -251,7 +243,7 @@ class ucp_pm
 				$num_not_moved = $num_removed = 0;
 				$release = request_var('release', 0);
 
-				if ($user->data['user_new_privmsg'] && $action == 'view_folder')
+				if ($user->data['user_new_privmsg'] && ($action == 'view_folder' || $action == 'view_message'))
 				{
 					$return = place_pm_into_folder($global_privmsgs_rules, $release);
 					$num_not_moved = $return['not_moved'];

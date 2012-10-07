@@ -2,7 +2,7 @@
 /**
 *
 * @package search
-* @version $Id: fulltext_native.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -81,9 +81,11 @@ class fulltext_native extends search_backend
 	*/
 	function split_keywords($keywords, $terms)
 	{
-		global $db, $user;
+		global $db, $user, $config;
 
-		$keywords = trim($this->cleanup($keywords, '+-|()*'));
+		$tokens = '+-|()*';
+
+		$keywords = trim($this->cleanup($keywords, $tokens));
 
 		// allow word|word|word without brackets
 		if ((strpos($keywords, ' ') === false) && (strpos($keywords, '|') !== false) && (strpos($keywords, '(') === false))
@@ -113,6 +115,15 @@ class fulltext_native extends search_backend
 					case '-':
 					case ' ':
 						$keywords[$i] = '|';
+					break;
+					case '*':
+						if ($i === 0 || ($keywords[$i - 1] !== '*' && strcspn($keywords[$i - 1], $tokens) === 0))
+						{
+							if ($i === $n - 1 || ($keywords[$i + 1] !== '*' && strcspn($keywords[$i + 1], $tokens) === 0))
+							{
+								$keywords = substr($keywords, 0, $i) . substr($keywords, $i + 1);
+							}
+						}
 					break;
 				}
 			}
@@ -167,6 +178,13 @@ class fulltext_native extends search_backend
 		);
 
 		$keywords = preg_replace($match, $replace, $keywords);
+		$num_keywords = sizeof(explode(' ', $keywords));
+
+		// We limit the number of allowed keywords to minimize load on the database
+		if ($config['max_num_search_keywords'] && $num_keywords > $config['max_num_search_keywords'])
+		{
+			trigger_error($user->lang('MAX_NUM_SEARCH_KEYWORDS_REFINE', $config['max_num_search_keywords'], $num_keywords));
+		}
 
 		// $keywords input format: each word separated by a space, words in a bracket are not separated
 
@@ -195,7 +213,8 @@ class fulltext_native extends search_backend
 		{
 			$sql = 'SELECT word_id, word_text, word_common
 				FROM ' . SEARCH_WORDLIST_TABLE . '
-				WHERE ' . $db->sql_in_set('word_text', $exact_words);
+				WHERE ' . $db->sql_in_set('word_text', $exact_words) . '
+				ORDER BY word_count ASC';
 			$result = $db->sql_query($sql);
 
 			// store an array of words and ids, remove common words
@@ -370,10 +389,6 @@ class fulltext_native extends search_backend
 			return false;
 		}
 
-		sort($this->must_contain_ids);
-		sort($this->must_not_contain_ids);
-		sort($this->must_exclude_one_ids);
-
 		if (!empty($this->search_query))
 		{
 			return true;
@@ -385,16 +400,17 @@ class fulltext_native extends search_backend
 	* Performs a search on keywords depending on display specific params. You have to run split_keywords() first.
 	*
 	* @param	string		$type				contains either posts or topics depending on what should be searched for
-	* @param	string		&$fields			contains either titleonly (topic titles should be searched), msgonly (only message bodies should be searched), firstpost (only subject and body of the first post should be searched) or all (all post bodies and subjects should be searched)
-	* @param	string		&$terms				is either 'all' (use query as entered, words without prefix should default to "have to be in field") or 'any' (ignore search query parts and just return all posts that contain any of the specified words)
-	* @param	array		&$sort_by_sql		contains SQL code for the ORDER BY part of a query
-	* @param	string		&$sort_key			is the key of $sort_by_sql for the selected sorting
-	* @param	string		&$sort_dir			is either a or d representing ASC and DESC
-	* @param	string		&$sort_days			specifies the maximum amount of days a post may be old
-	* @param	array		&$ex_fid_ary		specifies an array of forum ids which should not be searched
-	* @param	array		&$m_approve_fid_ary	specifies an array of forum ids in which the searcher is allowed to view unapproved posts
-	* @param	int			&$topic_id			is set to 0 or a topic id, if it is not 0 then only posts in this topic should be searched
-	* @param	array		&$author_ary		an array of author ids if the author should be ignored during the search the array is empty
+	* @param	string		$fields				contains either titleonly (topic titles should be searched), msgonly (only message bodies should be searched), firstpost (only subject and body of the first post should be searched) or all (all post bodies and subjects should be searched)
+	* @param	string		$terms				is either 'all' (use query as entered, words without prefix should default to "have to be in field") or 'any' (ignore search query parts and just return all posts that contain any of the specified words)
+	* @param	array		$sort_by_sql		contains SQL code for the ORDER BY part of a query
+	* @param	string		$sort_key			is the key of $sort_by_sql for the selected sorting
+	* @param	string		$sort_dir			is either a or d representing ASC and DESC
+	* @param	string		$sort_days			specifies the maximum amount of days a post may be old
+	* @param	array		$ex_fid_ary			specifies an array of forum ids which should not be searched
+	* @param	array		$m_approve_fid_ary	specifies an array of forum ids in which the searcher is allowed to view unapproved posts
+	* @param	int			$topic_id			is set to 0 or a topic id, if it is not 0 then only posts in this topic should be searched
+	* @param	array		$author_ary			an array of author ids if the author should be ignored during the search the array is empty
+	* @param	string		$author_name		specifies the author match, when ANONYMOUS is also a search-match
 	* @param	array		&$id_ary			passed by reference, to be filled with ids for the page specified by $start and $per_page, should be ordered
 	* @param	int			$start				indicates the first index of the page
 	* @param	int			$per_page			number of ids each page is supposed to contain
@@ -402,7 +418,7 @@ class fulltext_native extends search_backend
 	*
 	* @access	public
 	*/
-	function keyword_search($type, &$fields, &$terms, &$sort_by_sql, &$sort_key, &$sort_dir, &$sort_days, &$ex_fid_ary, &$m_approve_fid_ary, &$topic_id, &$author_ary, &$id_ary, $start, $per_page)
+	function keyword_search($type, $fields, $terms, $sort_by_sql, $sort_key, $sort_dir, $sort_days, $ex_fid_ary, $m_approve_fid_ary, $topic_id, $author_ary, $author_name, &$id_ary, $start, $per_page)
 	{
 		global $config, $db;
 
@@ -412,11 +428,19 @@ class fulltext_native extends search_backend
 			return false;
 		}
 
+		$must_contain_ids = $this->must_contain_ids;
+		$must_not_contain_ids = $this->must_not_contain_ids;
+		$must_exclude_one_ids = $this->must_exclude_one_ids;
+
+		sort($must_contain_ids);
+		sort($must_not_contain_ids);
+		sort($must_exclude_one_ids);
+
 		// generate a search_key from all the options to identify the results
 		$search_key = md5(implode('#', array(
-			serialize($this->must_contain_ids),
-			serialize($this->must_not_contain_ids),
-			serialize($this->must_exclude_one_ids),
+			serialize($must_contain_ids),
+			serialize($must_not_contain_ids),
+			serialize($must_exclude_one_ids),
 			$type,
 			$fields,
 			$terms,
@@ -425,7 +449,8 @@ class fulltext_native extends search_backend
 			$topic_id,
 			implode(',', $ex_fid_ary),
 			implode(',', $m_approve_fid_ary),
-			implode(',', $author_ary)
+			implode(',', $author_ary),
+			$author_name,
 		)));
 
 		// try reading the results from cache
@@ -447,13 +472,15 @@ class fulltext_native extends search_backend
 			'FROM'		=> array(
 				SEARCH_WORDMATCH_TABLE	=> array(),
 				SEARCH_WORDLIST_TABLE	=> array(),
-				POSTS_TABLE				=> 'p'
 			),
-			'LEFT_JOIN'	=> array()
+			'LEFT_JOIN' => array(array(
+				'FROM'	=> array(POSTS_TABLE => 'p'),
+				'ON'	=> 'm0.post_id = p.post_id',
+			)),
 		);
-		$sql_where[] = 'm0.post_id = p.post_id';
 
 		$title_match = '';
+		$left_join_topics = false;
 		$group_by = true;
 		// Build some display specific sql strings
 		switch ($fields)
@@ -463,7 +490,7 @@ class fulltext_native extends search_backend
 				$group_by = false;
 			// no break
 			case 'firstpost':
-				$sql_array['FROM'][TOPICS_TABLE] = 't';
+				$left_join_topics = true;
 				$sql_where[] = 'p.post_id = t.topic_first_post_id';
 			break;
 
@@ -475,11 +502,7 @@ class fulltext_native extends search_backend
 
 		if ($type == 'topics')
 		{
-			if (!isset($sql_array['FROM'][TOPICS_TABLE]))
-			{
-				$sql_array['FROM'][TOPICS_TABLE] = 't';
-				$sql_where[] = 'p.topic_id = t.topic_id';
-			}
+			$left_join_topics = true;
 			$group_by = true;
 		}
 
@@ -618,7 +641,16 @@ class fulltext_native extends search_backend
 
 		if (sizeof($author_ary))
 		{
-			$sql_where[] = $db->sql_in_set('p.poster_id', $author_ary);
+			if ($author_name)
+			{
+				// first one matches post of registered users, second one guests and deleted users
+				$sql_author = '(' . $db->sql_in_set('p.poster_id', array_diff($author_ary, array(ANONYMOUS)), false, true) . ' OR p.post_username ' . $author_name . ')';
+			}
+			else
+			{
+				$sql_author = $db->sql_in_set('p.poster_id', $author_ary);
+			}
+			$sql_where[] = $sql_author;
 		}
 
 		if (sizeof($ex_fid_ary))
@@ -640,13 +672,21 @@ class fulltext_native extends search_backend
 			$sql = '';
 			$sql_array_count = $sql_array;
 
+			if ($left_join_topics)
+			{
+				$sql_array_count['LEFT_JOIN'][] = array(
+					'FROM'	=> array(TOPICS_TABLE => 't'),
+					'ON'	=> 'p.topic_id = t.topic_id'
+				);
+			}
+
 			switch ($db->sql_layer)
 			{
 				case 'mysql4':
 				case 'mysqli':
 
 					// 3.x does not support SQL_CALC_FOUND_ROWS
-					$sql_array['SELECT'] = 'SQL_CALC_FOUND_ROWS ' . $sql_array['SELECT'];
+					// $sql_array['SELECT'] = 'SQL_CALC_FOUND_ROWS ' . $sql_array['SELECT'];
 					$is_mysql = true;
 
 				break;
@@ -687,17 +727,21 @@ class fulltext_native extends search_backend
 			break;
 
 			case 't':
-				if (!isset($sql_array['FROM'][TOPICS_TABLE]))
-				{
-					$sql_array['FROM'][TOPICS_TABLE] = 't';
-					$sql_where[] = 'p.topic_id = t.topic_id';
-				}
+				$left_join_topics = true;
 			break;
 
 			case 'f':
 				$sql_array['FROM'][FORUMS_TABLE] = 'f';
 				$sql_where[] = 'f.forum_id = p.forum_id';
 			break;
+		}
+
+		if ($left_join_topics)
+		{
+			$sql_array['LEFT_JOIN'][] = array(
+				'FROM'	=> array(TOPICS_TABLE => 't'),
+				'ON'	=> 'p.topic_id = t.topic_id'
+			);
 		}
 
 		$sql_array['WHERE'] = implode(' AND ', $sql_where);
@@ -711,7 +755,7 @@ class fulltext_native extends search_backend
 
 		while ($row = $db->sql_fetchrow($result))
 		{
-			$id_ary[] = $row[(($type == 'posts') ? 'post_id' : 'topic_id')];
+			$id_ary[] = (int) $row[(($type == 'posts') ? 'post_id' : 'topic_id')];
 		}
 		$db->sql_freeresult($result);
 
@@ -723,6 +767,16 @@ class fulltext_native extends search_backend
 		// if we use mysql and the total result count is not cached yet, retrieve it from the db
 		if (!$total_results && $is_mysql)
 		{
+			// Count rows for the executed queries. Replace $select within $sql with SQL_CALC_FOUND_ROWS, and run it.
+			$sql_array_copy = $sql_array;
+			$sql_array_copy['SELECT'] = 'SQL_CALC_FOUND_ROWS p.post_id ';
+
+			$sql = $db->sql_build_query('SELECT', $sql_array_copy);
+			unset($sql_array_copy);
+
+			$db->sql_query($sql);
+			$db->sql_freeresult($result);
+
 			$sql = 'SELECT FOUND_ROWS() as total_results';
 			$result = $db->sql_query($sql);
 			$total_results = (int) $db->sql_fetchfield('total_results');
@@ -746,14 +800,15 @@ class fulltext_native extends search_backend
 	*
 	* @param	string		$type				contains either posts or topics depending on what should be searched for
 	* @param	boolean		$firstpost_only		if true, only topic starting posts will be considered
-	* @param	array		&$sort_by_sql		contains SQL code for the ORDER BY part of a query
-	* @param	string		&$sort_key			is the key of $sort_by_sql for the selected sorting
-	* @param	string		&$sort_dir			is either a or d representing ASC and DESC
-	* @param	string		&$sort_days			specifies the maximum amount of days a post may be old
-	* @param	array		&$ex_fid_ary		specifies an array of forum ids which should not be searched
-	* @param	array		&$m_approve_fid_ary	specifies an array of forum ids in which the searcher is allowed to view unapproved posts
-	* @param	int			&$topic_id			is set to 0 or a topic id, if it is not 0 then only posts in this topic should be searched
-	* @param	array		&$author_ary		an array of author ids
+	* @param	array		$sort_by_sql		contains SQL code for the ORDER BY part of a query
+	* @param	string		$sort_key			is the key of $sort_by_sql for the selected sorting
+	* @param	string		$sort_dir			is either a or d representing ASC and DESC
+	* @param	string		$sort_days			specifies the maximum amount of days a post may be old
+	* @param	array		$ex_fid_ary			specifies an array of forum ids which should not be searched
+	* @param	array		$m_approve_fid_ary	specifies an array of forum ids in which the searcher is allowed to view unapproved posts
+	* @param	int			$topic_id			is set to 0 or a topic id, if it is not 0 then only posts in this topic should be searched
+	* @param	array		$author_ary			an array of author ids
+	* @param	string		$author_name		specifies the author match, when ANONYMOUS is also a search-match
 	* @param	array		&$id_ary			passed by reference, to be filled with ids for the page specified by $start and $per_page, should be ordered
 	* @param	int			$start				indicates the first index of the page
 	* @param	int			$per_page			number of ids each page is supposed to contain
@@ -761,7 +816,7 @@ class fulltext_native extends search_backend
 	*
 	* @access	public
 	*/
-	function author_search($type, $firstpost_only, &$sort_by_sql, &$sort_key, &$sort_dir, &$sort_days, &$ex_fid_ary, &$m_approve_fid_ary, &$topic_id, &$author_ary, &$id_ary, $start, $per_page)
+	function author_search($type, $firstpost_only, $sort_by_sql, $sort_key, $sort_dir, $sort_days, $ex_fid_ary, $m_approve_fid_ary, $topic_id, $author_ary, $author_name, &$id_ary, $start, $per_page)
 	{
 		global $config, $db;
 
@@ -783,7 +838,8 @@ class fulltext_native extends search_backend
 			$topic_id,
 			implode(',', $ex_fid_ary),
 			implode(',', $m_approve_fid_ary),
-			implode(',', $author_ary)
+			implode(',', $author_ary),
+			$author_name,
 		)));
 
 		// try reading the results from cache
@@ -796,7 +852,15 @@ class fulltext_native extends search_backend
 		$id_ary = array();
 
 		// Create some display specific sql strings
-		$sql_author		= $db->sql_in_set('p.poster_id', $author_ary);
+		if ($author_name)
+		{
+			// first one matches post of registered users, second one guests and deleted users
+			$sql_author = '(' . $db->sql_in_set('p.poster_id', array_diff($author_ary, array(ANONYMOUS)), false, true) . ' OR p.post_username ' . $author_name . ')';
+		}
+		else
+		{
+			$sql_author = $db->sql_in_set('p.poster_id', $author_ary);
+		}
 		$sql_fora		= (sizeof($ex_fid_ary)) ? ' AND ' . $db->sql_in_set('p.forum_id', $ex_fid_ary, true) : '';
 		$sql_time		= ($sort_days) ? ' AND p.post_time >= ' . (time() - ($sort_days * 86400)) : '';
 		$sql_topic_id	= ($topic_id) ? ' AND p.topic_id = ' . (int) $topic_id : '';
@@ -813,8 +877,8 @@ class fulltext_native extends search_backend
 			break;
 
 			case 't':
-				$sql_sort_table	= ($type == 'posts') ? TOPICS_TABLE . ' t, ' : '';
-				$sql_sort_join	= ($type == 'posts') ? ' AND t.topic_id = p.topic_id ' : '';
+				$sql_sort_table	= ($type == 'posts' && !$firstpost_only) ? TOPICS_TABLE . ' t, ' : '';
+				$sql_sort_join	= ($type == 'posts' && !$firstpost_only) ? ' AND t.topic_id = p.topic_id ' : '';
 			break;
 
 			case 'f':
@@ -846,7 +910,7 @@ class fulltext_native extends search_backend
 			{
 				case 'mysql4':
 				case 'mysqli':
-					$select = 'SQL_CALC_FOUND_ROWS ' . $select;
+//					$select = 'SQL_CALC_FOUND_ROWS ' . $select;
 					$is_mysql = true;
 				break;
 
@@ -900,7 +964,7 @@ class fulltext_native extends search_backend
 		if ($type == 'posts')
 		{
 			$sql = "SELECT $select
-				FROM " . $sql_sort_table . POSTS_TABLE . ' p' . (($topic_id || $firstpost_only) ? ', ' . TOPICS_TABLE . ' t' : '') . "
+				FROM " . $sql_sort_table . POSTS_TABLE . ' p' . (($firstpost_only) ? ', ' . TOPICS_TABLE . ' t' : '') . "
 				WHERE $sql_author
 					$sql_topic_id
 					$sql_firstpost
@@ -933,12 +997,18 @@ class fulltext_native extends search_backend
 
 		while ($row = $db->sql_fetchrow($result))
 		{
-			$id_ary[] = $row[$field];
+			$id_ary[] = (int) $row[$field];
 		}
 		$db->sql_freeresult($result);
 
 		if (!$total_results && $is_mysql)
 		{
+			// Count rows for the executed queries. Replace $select within $sql with SQL_CALC_FOUND_ROWS, and run it.
+			$sql = str_replace('SELECT ' . $select, 'SELECT DISTINCT SQL_CALC_FOUND_ROWS p.post_id', $sql);
+
+			$db->sql_query($sql);
+			$db->sql_freeresult($result);
+
 			$sql = 'SELECT FOUND_ROWS() as total_results';
 			$result = $db->sql_query($sql);
 			$total_results = (int) $db->sql_fetchfield('total_results');
@@ -1108,7 +1178,7 @@ class fulltext_native extends search_backend
 
 		// Get unique words from the above arrays
 		$unique_add_words = array_unique(array_merge($words['add']['post'], $words['add']['title']));
-		
+
 		// We now have unique arrays of all words to be added and removed and
 		// individual arrays of added and removed words for text and title. What
 		// we need to do now is add the new words (if they don't already exist)
@@ -1264,7 +1334,7 @@ class fulltext_native extends search_backend
 			$db->sql_query($sql);
 		}
 
-		$this->destroy_cache(array_unique($word_texts), $author_ids);
+		$this->destroy_cache(array_unique($word_texts), array_unique($author_ids));
 	}
 
 	/**
@@ -1391,17 +1461,8 @@ class fulltext_native extends search_backend
 	{
 		global $db;
 
-		$sql = 'SELECT COUNT(*) as total_words
-			FROM ' . SEARCH_WORDLIST_TABLE;
-		$result = $db->sql_query($sql);
-		$this->stats['total_words'] = (int) $db->sql_fetchfield('total_words');
-		$db->sql_freeresult($result);
-
-		$sql = 'SELECT COUNT(*) as total_matches
-			FROM ' . SEARCH_WORDMATCH_TABLE;
-		$result = $db->sql_query($sql);
-		$this->stats['total_matches'] = (int) $db->sql_fetchfield('total_matches');
-		$db->sql_freeresult($result);
+		$this->stats['total_words']		= $db->get_estimated_row_count(SEARCH_WORDLIST_TABLE);
+		$this->stats['total_matches']	= $db->get_estimated_row_count(SEARCH_WORDMATCH_TABLE);
 	}
 
 	/**
@@ -1673,7 +1734,7 @@ class fulltext_native extends search_backend
 		</dl>
 		<dl>
 			<dt><label for="fulltext_native_common_thres">' . $user->lang['COMMON_WORD_THRESHOLD'] . ':</label><br /><span>' . $user->lang['COMMON_WORD_THRESHOLD_EXPLAIN'] . '</span></dt>
-			<dd><input id="fulltext_native_common_thres" type="text" size="3" maxlength="3" name="config[fulltext_native_common_thres]" value="' . (int) $config['fulltext_native_common_thres'] . '" /> %</dd>
+			<dd><input id="fulltext_native_common_thres" type="text" size="3" maxlength="3" name="config[fulltext_native_common_thres]" value="' . (double) $config['fulltext_native_common_thres'] . '" /> %</dd>
 		</dl>
 		';
 

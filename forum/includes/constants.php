@@ -2,7 +2,7 @@
 /**
 *
 * @package phpBB3
-* @version $Id: constants.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -23,6 +23,9 @@ if (!defined('IN_PHPBB'))
 * PHPBB_ROOT_PATH
 * PHPBB_ADMIN_PATH
 */
+
+// phpBB Version
+define('PHPBB_VERSION', '3.0.11');
 
 // QA-related
 // define('PHPBB_QA', 1);
@@ -66,6 +69,10 @@ define('LOGIN_ERROR_ATTEMPTS', 13);
 define('LOGIN_ERROR_EXTERNAL_AUTH', 14);
 define('LOGIN_ERROR_PASSWORD_CONVERT', 15);
 
+// Maximum login attempts
+// The value is arbitrary, but it has to fit into the user_login_attempts field.
+define('LOGIN_ATTEMPTS_MAX', 100);
+
 // Group settings
 define('GROUP_OPEN', 0);
 define('GROUP_CLOSED', 1);
@@ -88,6 +95,11 @@ define('FORUM_FLAG_PRUNE_ANNOUNCE', 4);
 define('FORUM_FLAG_PRUNE_STICKY', 8);
 define('FORUM_FLAG_ACTIVE_TOPICS', 16);
 define('FORUM_FLAG_POST_REVIEW', 32);
+define('FORUM_FLAG_QUICK_REPLY', 64);
+
+// Forum Options... sequential order. Modifications should begin at number 10 (number 29 is maximum)
+define('FORUM_OPTION_FEED_NEWS', 1);
+define('FORUM_OPTION_FEED_EXCLUDE', 2);
 
 // Optional text flags
 define('OPTION_FLAG_BBCODE', 1);
@@ -108,6 +120,10 @@ define('TRACK_POSTED', 1);
 define('NOTIFY_EMAIL', 0);
 define('NOTIFY_IM', 1);
 define('NOTIFY_BOTH', 2);
+
+// Notify status
+define('NOTIFY_YES', 0);
+define('NOTIFY_NO', 1);
 
 // Email Priority Settings
 define('MAIL_LOW_PRIORITY', 4);
@@ -157,6 +173,12 @@ define('BBCODE_UID_LEN', 8);
 // Number of core BBCodes
 define('NUM_CORE_BBCODES', 12);
 
+// BBCode hard limit
+define('BBCODE_LIMIT', 1511);
+
+// Smiley hard limit
+define('SMILEY_LIMIT', 1000);
+
 // Magic url types
 define('MAGIC_URL_EMAIL', 1);
 define('MAGIC_URL_FULL', 2);
@@ -171,6 +193,20 @@ define('FIELD_BOOL', 4);
 define('FIELD_DROPDOWN', 5);
 define('FIELD_DATE', 6);
 
+// referer validation
+define('REFERER_VALIDATE_NONE', 0);
+define('REFERER_VALIDATE_HOST', 1);
+define('REFERER_VALIDATE_PATH', 2);
+
+// phpbb_chmod() permissions
+@define('CHMOD_ALL', 7);
+@define('CHMOD_READ', 4);
+@define('CHMOD_WRITE', 2);
+@define('CHMOD_EXECUTE', 1);
+
+// Captcha code length
+define('CAPTCHA_MIN_CHARS', 4);
+define('CAPTCHA_MAX_CHARS', 7);
 
 // Additional constants
 define('VOTE_CONVERTED', 127);
@@ -200,6 +236,7 @@ define('GROUPS_TABLE',				$table_prefix . 'groups');
 define('ICONS_TABLE',				$table_prefix . 'icons');
 define('LANG_TABLE',				$table_prefix . 'lang');
 define('LOG_TABLE',					$table_prefix . 'log');
+define('LOGIN_ATTEMPT_TABLE',		$table_prefix . 'login_attempts');
 define('MODERATOR_CACHE_TABLE',		$table_prefix . 'moderator_cache');
 define('MODULES_TABLE',				$table_prefix . 'modules');
 define('POLL_OPTIONS_TABLE',		$table_prefix . 'poll_options');

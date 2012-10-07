@@ -2,7 +2,7 @@
 /**
 *
 * @package ucp
-* @version $Id: ucp_remind.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -36,9 +36,9 @@ class ucp_remind
 
 		if ($submit)
 		{
-			$sql = 'SELECT user_id, username, user_email, user_jabber, user_notify_type, user_type, user_lang, user_inactive_reason
+			$sql = 'SELECT user_id, username, user_permissions, user_email, user_jabber, user_notify_type, user_type, user_lang, user_inactive_reason
 				FROM ' . USERS_TABLE . "
-				WHERE user_email = '" . $db->sql_escape($email) . "'
+				WHERE user_email_hash = '" . $db->sql_escape(phpbb_email_hash($email)) . "'
 					AND username_clean = '" . $db->sql_escape(utf8_clean_string($username)) . "'";
 			$result = $db->sql_query($sql);
 			$user_row = $db->sql_fetchrow($result);
@@ -66,13 +66,23 @@ class ucp_remind
 				}
 			}
 
+			// Check users permissions
+			$auth2 = new auth();
+			$auth2->acl($user_row);
+
+			if (!$auth2->acl_get('u_chgpasswd'))
+			{
+				trigger_error('NO_AUTH_PASSWORD_REMINDER');
+			}
+
 			$server_url = generate_board_url();
 
-			$key_len = 54 - strlen($server_url);
-			$key_len = max(6, $key_len); // we want at least 6
-			$key_len = ($config['max_pass_chars']) ? min($key_len, $config['max_pass_chars']) : $key_len; // we want at most $config['max_pass_chars']
-			$user_actkey = substr(gen_rand_string(10), 0, $key_len);
-			$user_password = gen_rand_string(8);
+			// Make password at least 8 characters long, make it longer if admin wants to.
+			// gen_rand_string() however has a limit of 12 or 13.
+			$user_password = gen_rand_string_friendly(max(8, mt_rand((int) $config['min_pass_chars'], (int) $config['max_pass_chars'])));
+
+			// For the activation key a random length between 6 and 10 will do.
+			$user_actkey = gen_rand_string(mt_rand(6, 10));
 
 			$sql = 'UPDATE ' . USERS_TABLE . "
 				SET user_newpasswd = '" . $db->sql_escape(phpbb_hash($user_password)) . "', user_actkey = '" . $db->sql_escape($user_actkey) . "'

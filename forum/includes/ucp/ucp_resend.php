@@ -2,7 +2,7 @@
 /**
 *
 * @package ucp
-* @version $Id: ucp_resend.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -45,7 +45,7 @@ class ucp_resend
 
 			$sql = 'SELECT user_id, group_id, username, user_email, user_type, user_lang, user_actkey, user_inactive_reason
 				FROM ' . USERS_TABLE . "
-				WHERE user_email = '" . $db->sql_escape($email) . "'
+				WHERE user_email_hash = '" . $db->sql_escape(phpbb_email_hash($email)) . "'
 					AND username_clean = '" . $db->sql_escape(utf8_clean_string($username)) . "'";
 			$result = $db->sql_query($sql);
 			$user_row = $db->sql_fetchrow($result);
@@ -94,10 +94,7 @@ class ucp_resend
 				$messenger->template(($coppa) ? 'coppa_resend_inactive' : 'user_resend_inactive', $user_row['user_lang']);
 				$messenger->to($user_row['user_email'], $user_row['username']);
 
-				$messenger->headers('X-AntiAbuse: Board servername - ' . $config['server_name']);
-				$messenger->headers('X-AntiAbuse: User_id - ' . $user->data['user_id']);
-				$messenger->headers('X-AntiAbuse: Username - ' . $user->data['username']);
-				$messenger->headers('X-AntiAbuse: User IP - ' . $user->ip);
+				$messenger->anti_abuse_headers($config, $user);
 
 				$messenger->assign_vars(array(
 					'WELCOME_MSG'	=> htmlspecialchars_decode(sprintf($user->lang['WELCOME_SUBJECT'], $config['sitename'])),
@@ -133,6 +130,8 @@ class ucp_resend
 					$messenger->to($row['user_email'], $row['username']);
 					$messenger->im($row['user_jabber'], $row['username']);
 
+					$messenger->anti_abuse_headers($config, $user);
+
 					$messenger->assign_vars(array(
 						'USERNAME'			=> htmlspecialchars_decode($user_row['username']),
 						'U_USER_DETAILS'	=> generate_board_url() . "/memberlist.$phpEx?mode=viewprofile&u={$user_row['user_id']}",
@@ -146,7 +145,7 @@ class ucp_resend
 
 			meta_refresh(3, append_sid("{$phpbb_root_path}index.$phpEx"));
 
-			$message = ($config['require_activation'] == USER_ACTIVATION_ADMIN) ? $user->lang['ACIVATION_EMAIL_SENT_ADMIN'] : $user->lang['ACTIVATION_EMAIL_SENT'];
+			$message = ($config['require_activation'] == USER_ACTIVATION_ADMIN) ? $user->lang['ACTIVATION_EMAIL_SENT_ADMIN'] : $user->lang['ACTIVATION_EMAIL_SENT'];
 			$message .= '<br /><br />' . sprintf($user->lang['RETURN_INDEX'], '<a href="' . append_sid("{$phpbb_root_path}index.$phpEx") . '">', '</a>');
 			trigger_error($message);
 		}

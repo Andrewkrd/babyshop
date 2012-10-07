@@ -2,7 +2,7 @@
 /**
 *
 * @package dbal
-* @version $Id: mysqli.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -33,24 +33,45 @@ class dbal_mysqli extends dbal
 	*/
 	function sql_connect($sqlserver, $sqluser, $sqlpassword, $database, $port = false, $persistency = false , $new_link = false)
 	{
-		$this->persistency = $persistency;
+		// Mysqli extension supports persistent connection since PHP 5.3.0
+		$this->persistency = (version_compare(PHP_VERSION, '5.3.0', '>=')) ? $persistency : false;
 		$this->user = $sqluser;
-		$this->server = $sqlserver;
+
+		// If persistent connection, set dbhost to localhost when empty and prepend it with 'p:' prefix
+		$this->server = ($this->persistency) ? 'p:' . (($sqlserver) ? $sqlserver : 'localhost') : $sqlserver;
+
 		$this->dbname = $database;
 		$port = (!$port) ? NULL : $port;
 
-		// Persistant connections not supported by the mysqli extension?
-		$this->db_connect_id = @mysqli_connect($this->server, $this->user, $sqlpassword, $this->dbname, $port);
+		// If port is set and it is not numeric, most likely mysqli socket is set.
+		// Try to map it to the $socket parameter.
+		$socket = NULL;
+		if ($port)
+		{
+			if (is_numeric($port))
+			{
+				$port = (int) $port;
+			}
+			else
+			{
+				$socket = $port;
+				$port = NULL;
+			}
+		}
+
+		$this->db_connect_id = @mysqli_connect($this->server, $this->user, $sqlpassword, $this->dbname, $port, $socket);
 
 		if ($this->db_connect_id && $this->dbname != '')
 		{
 			@mysqli_query($this->db_connect_id, "SET NAMES 'utf8'");
+
 			// enforce strict mode on databases that support it
-			if (mysqli_get_server_version($this->db_connect_id) >= 50002)
+			if (version_compare($this->sql_server_info(true), '5.0.2', '>='))
 			{
 				$result = @mysqli_query($this->db_connect_id, 'SELECT @@session.sql_mode AS sql_mode');
 				$row = @mysqli_fetch_assoc($result);
 				@mysqli_free_result($result);
+
 				$modes = array_map('trim', explode(',', $row['sql_mode']));
 
 				// TRADITIONAL includes STRICT_ALL_TABLES and STRICT_TRANS_TABLES
@@ -78,10 +99,28 @@ class dbal_mysqli extends dbal
 
 	/**
 	* Version information about used database
+	* @param bool $use_cache If true, it is safe to retrieve the value from the cache
+	* @return string sql server version
 	*/
-	function sql_server_info()
+	function sql_server_info($raw = false, $use_cache = true)
 	{
-		return 'MySQL(i) ' . @mysqli_get_server_info($this->db_connect_id);
+		global $cache;
+
+		if (!$use_cache || empty($cache) || ($this->sql_server_version = $cache->get('mysqli_version')) === false)
+		{
+			$result = @mysqli_query($this->db_connect_id, 'SELECT VERSION() AS version');
+			$row = @mysqli_fetch_assoc($result);
+			@mysqli_free_result($result);
+
+			$this->sql_server_version = $row['version'];
+
+			if (!empty($cache) && $use_cache)
+			{
+				$cache->put('mysqli_version', $this->sql_server_version);
+			}
+		}
+
+		return ($raw) ? $this->sql_server_version : 'MySQL(i) ' . $this->sql_server_version;
 	}
 
 	/**
@@ -163,7 +202,7 @@ class dbal_mysqli extends dbal
 			return false;
 		}
 
-		return ($this->query_result) ? $this->query_result : false;
+		return $this->query_result;
 	}
 
 	/**
@@ -210,7 +249,13 @@ class dbal_mysqli extends dbal
 			return $cache->sql_fetchrow($query_id);
 		}
 
-		return ($query_id !== false) ? @mysqli_fetch_assoc($query_id) : false;
+		if ($query_id !== false)
+		{
+			$result = @mysqli_fetch_assoc($query_id);
+			return $result !== null ? $result : false;
+		}
+
+		return false;
 	}
 
 	/**
@@ -268,6 +313,76 @@ class dbal_mysqli extends dbal
 	function sql_escape($msg)
 	{
 		return @mysqli_real_escape_string($this->db_connect_id, $msg);
+	}
+
+	/**
+	* Gets the estimated number of rows in a specified table.
+	*
+	* @param string $table_name		Table name
+	*
+	* @return string				Number of rows in $table_name.
+	*								Prefixed with ~ if estimated (otherwise exact).
+	*
+	* @access public
+	*/
+	function get_estimated_row_count($table_name)
+	{
+		$table_status = $this->get_table_status($table_name);
+
+		if (isset($table_status['Engine']))
+		{
+			if ($table_status['Engine'] === 'MyISAM')
+			{
+				return $table_status['Rows'];
+			}
+			else if ($table_status['Engine'] === 'InnoDB' && $table_status['Rows'] > 100000)
+			{
+				return '~' . $table_status['Rows'];
+			}
+		}
+
+		return parent::get_row_count($table_name);
+	}
+
+	/**
+	* Gets the exact number of rows in a specified table.
+	*
+	* @param string $table_name		Table name
+	*
+	* @return string				Exact number of rows in $table_name.
+	*
+	* @access public
+	*/
+	function get_row_count($table_name)
+	{
+		$table_status = $this->get_table_status($table_name);
+
+		if (isset($table_status['Engine']) && $table_status['Engine'] === 'MyISAM')
+		{
+			return $table_status['Rows'];
+		}
+
+		return parent::get_row_count($table_name);
+	}
+
+	/**
+	* Gets some information about the specified table.
+	*
+	* @param string $table_name		Table name
+	*
+	* @return array
+	*
+	* @access protected
+	*/
+	function get_table_status($table_name)
+	{
+		$sql = "SHOW TABLE STATUS
+			LIKE '" . $this->sql_escape($table_name) . "'";
+		$result = $this->sql_query($sql);
+		$table_status = $this->sql_fetchrow($result);
+		$this->sql_freeresult($result);
+
+		return $table_status;
 	}
 
 	/**

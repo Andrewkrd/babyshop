@@ -2,7 +2,7 @@
 /**
 *
 * @package dbal
-* @version $Id: mysql.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -29,7 +29,6 @@ include_once($phpbb_root_path . 'includes/db/dbal.' . $phpEx);
 */
 class dbal_mysql extends dbal
 {
-	var $mysql_version;
 	var $multi_insert = true;
 
 	/**
@@ -45,20 +44,19 @@ class dbal_mysql extends dbal
 
 		$this->sql_layer = 'mysql4';
 
-		$this->db_connect_id = ($this->persistency) ? @mysql_pconnect($this->server, $this->user, $sqlpassword, $new_link) : @mysql_connect($this->server, $this->user, $sqlpassword, $new_link);
+		$this->db_connect_id = ($this->persistency) ? @mysql_pconnect($this->server, $this->user, $sqlpassword) : @mysql_connect($this->server, $this->user, $sqlpassword, $new_link);
 
 		if ($this->db_connect_id && $this->dbname != '')
 		{
 			if (@mysql_select_db($this->dbname, $this->db_connect_id))
 			{
 				// Determine what version we are using and if it natively supports UNICODE
-				$this->mysql_version = mysql_get_server_info($this->db_connect_id);
-
-				if (version_compare($this->mysql_version, '4.1.3', '>='))
+				if (version_compare($this->sql_server_info(true), '4.1.0', '>='))
 				{
 					@mysql_query("SET NAMES 'utf8'", $this->db_connect_id);
+
 					// enforce strict mode on databases that support it
-					if (version_compare($this->mysql_version, '5.0.2', '>='))
+					if (version_compare($this->sql_server_info(true), '5.0.2', '>='))
 					{
 						$result = @mysql_query('SELECT @@session.sql_mode AS sql_mode', $this->db_connect_id);
 						$row = @mysql_fetch_assoc($result);
@@ -83,7 +81,7 @@ class dbal_mysql extends dbal
 						@mysql_query("SET SESSION sql_mode='{$mode}'", $this->db_connect_id);
 					}
 				}
-				else if (version_compare($this->mysql_version, '4.0.0', '<'))
+				else if (version_compare($this->sql_server_info(true), '4.0.0', '<'))
 				{
 					$this->sql_layer = 'mysql';
 				}
@@ -97,10 +95,29 @@ class dbal_mysql extends dbal
 
 	/**
 	* Version information about used database
+	* @param bool $raw if true, only return the fetched sql_server_version
+	* @param bool $use_cache If true, it is safe to retrieve the value from the cache
+	* @return string sql server version
 	*/
-	function sql_server_info()
+	function sql_server_info($raw = false, $use_cache = true)
 	{
-		return 'MySQL ' . $this->mysql_version;
+		global $cache;
+
+		if (!$use_cache || empty($cache) || ($this->sql_server_version = $cache->get('mysql_version')) === false)
+		{
+			$result = @mysql_query('SELECT VERSION() AS version', $this->db_connect_id);
+			$row = @mysql_fetch_assoc($result);
+			@mysql_free_result($result);
+
+			$this->sql_server_version = $row['version'];
+
+			if (!empty($cache) && $use_cache)
+			{
+				$cache->put('mysql_version', $this->sql_server_version);
+			}
+		}
+
+		return ($raw) ? $this->sql_server_version : 'MySQL ' . $this->sql_server_version;
 	}
 
 	/**
@@ -183,7 +200,7 @@ class dbal_mysql extends dbal
 			return false;
 		}
 
-		return ($this->query_result) ? $this->query_result : false;
+		return $this->query_result;
 	}
 
 	/**
@@ -302,6 +319,76 @@ class dbal_mysql extends dbal
 	}
 
 	/**
+	* Gets the estimated number of rows in a specified table.
+	*
+	* @param string $table_name		Table name
+	*
+	* @return string				Number of rows in $table_name.
+	*								Prefixed with ~ if estimated (otherwise exact).
+	*
+	* @access public
+	*/
+	function get_estimated_row_count($table_name)
+	{
+		$table_status = $this->get_table_status($table_name);
+
+		if (isset($table_status['Engine']))
+		{
+			if ($table_status['Engine'] === 'MyISAM')
+			{
+				return $table_status['Rows'];
+			}
+			else if ($table_status['Engine'] === 'InnoDB' && $table_status['Rows'] > 100000)
+			{
+				return '~' . $table_status['Rows'];
+			}
+		}
+
+		return parent::get_row_count($table_name);
+	}
+
+	/**
+	* Gets the exact number of rows in a specified table.
+	*
+	* @param string $table_name		Table name
+	*
+	* @return string				Exact number of rows in $table_name.
+	*
+	* @access public
+	*/
+	function get_row_count($table_name)
+	{
+		$table_status = $this->get_table_status($table_name);
+
+		if (isset($table_status['Engine']) && $table_status['Engine'] === 'MyISAM')
+		{
+			return $table_status['Rows'];
+		}
+
+		return parent::get_row_count($table_name);
+	}
+
+	/**
+	* Gets some information about the specified table.
+	*
+	* @param string $table_name		Table name
+	*
+	* @return array
+	*
+	* @access protected
+	*/
+	function get_table_status($table_name)
+	{
+		$sql = "SHOW TABLE STATUS
+			LIKE '" . $this->sql_escape($table_name) . "'";
+		$result = $this->sql_query($sql);
+		$table_status = $this->sql_fetchrow($result);
+		$this->sql_freeresult($result);
+
+		return $table_status;
+	}
+
+	/**
 	* Build LIKE expression
 	* @access private
 	*/
@@ -325,7 +412,7 @@ class dbal_mysql extends dbal
 
 		return $data;
 	}
-	
+
 	/**
 	* return sql error array
 	* @access private
@@ -367,13 +454,9 @@ class dbal_mysql extends dbal
 		if ($test_prof === null)
 		{
 			$test_prof = false;
-			if (strpos($this->mysql_version, 'community') !== false)
+			if (version_compare($this->sql_server_info(true), '5.0.37', '>=') && version_compare($this->sql_server_info(true), '5.1', '<'))
 			{
-				$ver = substr($this->mysql_version, 0, strpos($this->mysql_version, '-'));
-				if (version_compare($ver, '5.0.37', '>=') && version_compare($ver, '5.1', '<'))
-				{
-					$test_prof = true;
-				}
+				$test_prof = true;
 			}
 		}
 

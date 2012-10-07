@@ -2,7 +2,7 @@
 /**
 *
 * @package ucp
-* @version $Id: ucp.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -22,7 +22,7 @@ require($phpbb_root_path . 'includes/functions_module.' . $phpEx);
 $id 	= request_var('i', '');
 $mode	= request_var('mode', '');
 
-if ($mode == 'login' || $mode == 'logout' || $mode == 'confirm')
+if (in_array($mode, array('login', 'logout', 'confirm', 'sendpassword', 'activate')))
 {
 	define('IN_LOGIN', true);
 }
@@ -36,6 +36,7 @@ $user->setup('ucp');
 $template->assign_var('S_IN_UCP', true);
 
 $module = new p_master();
+$default = false;
 
 // Basic "global" modes
 switch ($mode)
@@ -69,7 +70,6 @@ switch ($mode)
 
 	case 'confirm':
 		$module->load('ucp', 'confirm');
-		exit_handler();
 	break;
 
 	case 'login':
@@ -93,7 +93,7 @@ switch ($mode)
 			$message = ($user->data['user_id'] == ANONYMOUS) ? $user->lang['LOGOUT_REDIRECT'] : $user->lang['LOGOUT_FAILED'];
 		}
 		meta_refresh(3, append_sid("{$phpbb_root_path}index.$phpEx"));
-	
+
 		$message = $message . '<br /><br />' . sprintf($user->lang['RETURN_INDEX'], '<a href="' . append_sid("{$phpbb_root_path}index.$phpEx") . '">', '</a> ');
 		trigger_error($message);
 
@@ -127,15 +127,15 @@ switch ($mode)
 			'AGREEMENT_TITLE'		=> $user->lang[$title],
 			'AGREEMENT_TEXT'		=> sprintf($user->lang[$message], $config['sitename'], generate_board_url()),
 			'U_BACK'				=> append_sid("{$phpbb_root_path}ucp.$phpEx", 'mode=login'),
-			'L_BACK'				=> $user->lang['BACK_TO_LOGIN'])
-		);
+			'L_BACK'				=> $user->lang['BACK_TO_LOGIN'],
+		));
 
 		page_footer();
 
 	break;
 
 	case 'delete_cookies':
-		
+
 		// Delete Cookies with dynamic names (do NOT delete poll cookies)
 		if (confirm_box(true))
 		{
@@ -143,6 +143,12 @@ switch ($mode)
 
 			foreach ($_COOKIE as $cookie_name => $cookie_data)
 			{
+				// Only delete board cookies, no other ones...
+				if (strpos($cookie_name, $config['cookie_name'] . '_') !== 0)
+				{
+					continue;
+				}
+
 				$cookie_name = str_replace($config['cookie_name'] . '_', '', $cookie_name);
 
 				// Polls are stored as {cookie_name}_poll_{topic_id}, cookie_name_ got removed, therefore checking for poll_
@@ -186,7 +192,7 @@ switch ($mode)
 		$user_row = $db->sql_fetchrow($result);
 		$db->sql_freeresult($result);
 
-		if (!$auth->acl_get('a_switchperm') || !$user_row || $user_id == $user->data['user_id'])
+		if (!$auth->acl_get('a_switchperm') || !$user_row || $user_id == $user->data['user_id'] || !check_link_hash(request_var('hash', ''), 'switchperm'))
 		{
 			redirect(append_sid("{$phpbb_root_path}index.$phpEx"));
 		}
@@ -215,11 +221,6 @@ switch ($mode)
 
 		$auth->acl_cache($user->data);
 
-		$sql = 'UPDATE ' . USERS_TABLE . "
-			SET user_perm_from = 0
-			WHERE user_id = " . $user->data['user_id'];
-		$db->sql_query($sql);
-
 		$sql = 'SELECT username
 			FROM ' . USERS_TABLE . '
 			WHERE user_id = ' . $user->data['user_perm_from'];
@@ -233,6 +234,16 @@ switch ($mode)
 		trigger_error($message);
 
 	break;
+
+	default:
+		$default = true;
+	break;
+}
+
+// We use this approach because it does not impose large code changes
+if (!$default)
+{
+	return true;
 }
 
 // Only registered users can go beyond this point
@@ -241,6 +252,12 @@ if (!$user->data['is_registered'])
 	if ($user->data['is_bot'])
 	{
 		redirect(append_sid("{$phpbb_root_path}index.$phpEx"));
+	}
+
+	if ($id == 'pm' && $mode == 'view' && isset($_GET['p']))
+	{
+		$redirect_url = append_sid("{$phpbb_root_path}ucp.$phpEx?i=pm&p=" . request_var('p', 0));
+		login_box($redirect_url, $user->lang['LOGIN_EXPLAIN_UCP']);
 	}
 
 	login_box('', $user->lang['LOGIN_EXPLAIN_UCP']);
@@ -301,6 +318,12 @@ if ($module->is_active('zebra', 'friends'))
 if (!$config['allow_topic_notify'] && !$config['allow_forum_notify'])
 {
 	$module->set_display('main', 'subscribed', false);
+}
+
+// Do not display signature panel if not authed to do so
+if (!$auth->acl_get('u_sig'))
+{
+	$module->set_display('profile', 'signature', false);
 }
 
 // Select the active module

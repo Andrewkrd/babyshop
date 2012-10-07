@@ -4,7 +4,7 @@
 * acp_groups [English]
 *
 * @package language
-* @version $Id: groups.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -36,7 +36,7 @@ if (empty($lang) || !is_array($lang))
 // in a url you again do not need to specify an order e.g., 'Click %sHERE%s' is fine
 
 $lang = array_merge($lang, array(
-	'ACP_GROUPS_MANAGE_EXPLAIN'		=> 'From this panel you can administrate all your usergroups. You can delete, create and edit existing groups. Furthermore, you may choose group leaders, toggle open/hidden/closed group status and set the group name and description.',
+	'ACP_GROUPS_MANAGE_EXPLAIN'		=> 'From this panel you can administer all your usergroups. You can delete, create and edit existing groups. Furthermore, you may choose group leaders, toggle open/hidden/closed group status and set the group name and description.',
 	'ADD_USERS'						=> 'Add users',
 	'ADD_USERS_EXPLAIN'				=> 'Here you can add new users to the group. You may select whether this group becomes the new default for the selected users. Additionally you can define them as group leaders. Please enter each username on a separate line.',
 
@@ -86,16 +86,21 @@ $lang = array_merge($lang, array(
 	'GROUP_NAME_TAKEN'				=> 'The group name you entered is already in use, please select an alternative.',
 	'GROUP_OPEN'					=> 'Open',
 	'GROUP_PENDING'					=> 'Pending members',
+	'GROUP_MAX_RECIPIENTS'			=> 'Maximum number of allowed recipients per private message',
+	'GROUP_MAX_RECIPIENTS_EXPLAIN'	=> 'The maximum number of allowed recipients in a private message. If 0 is entered, the board-wide setting is used.',
+	'GROUP_OPTIONS_SAVE'			=> 'Group wide options',
 	'GROUP_PROMOTE'					=> 'Promote to group leader',
 	'GROUP_RANK'					=> 'Group rank',
 	'GROUP_RECEIVE_PM'				=> 'Group able to receive private messages',
 	'GROUP_RECEIVE_PM_EXPLAIN'		=> 'Please note that hidden groups are not able to be messaged, regardless of this setting.',
 	'GROUP_REQUEST'					=> 'Request',
 	'GROUP_SETTINGS_SAVE'			=> 'Group wide settings',
+	'GROUP_SKIP_AUTH'				=> 'Exempt group leader from permissions',
+	'GROUP_SKIP_AUTH_EXPLAIN'		=> 'If enabled group leader no longer inherit permissions from the group.',
 	'GROUP_TYPE'					=> 'Group type',
 	'GROUP_TYPE_EXPLAIN'			=> 'This determines which users can join or view this group.',
 	'GROUP_UPDATED'					=> 'Group preferences updated successfully.',
-	
+
 	'GROUP_USERS_ADDED'				=> 'New users added to group successfully.',
 	'GROUP_USERS_EXIST'				=> 'The selected users are already members.',
 	'GROUP_USERS_REMOVE'			=> 'Users removed from group and new defaults set successfully.',
@@ -108,6 +113,7 @@ $lang = array_merge($lang, array(
 	'NO_PERMISSIONS'			=> 'Do not copy permissions',
 	'NO_USERS'					=> 'You haven’t entered any users.',
 	'NO_USERS_ADDED'			=> 'No users were added to the group.',
+	'NO_VALID_USERS'			=> 'You haven’t entered any users eligible for that action.',
 
 	'SPECIAL_GROUPS'			=> 'Pre-defined groups',
 	'SPECIAL_GROUPS_EXPLAIN'	=> 'Pre-defined groups are special groups, they cannot be deleted or directly modified. However you can still add users and alter basic settings.',

@@ -2,7 +2,7 @@
 /**
 *
 * @package ucp
-* @version $Id: ucp_pm_options.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -108,6 +108,10 @@ function message_options($id, $mode, $global_privmsgs_rules, $global_rule_condit
 				);
 				$db->sql_query($sql);
 				$msg = $user->lang['FOLDER_ADDED'];
+			}
+			else
+			{
+				$msg = $user->lang['FOLDER_NAME_EMPTY'];
 			}
 		}
 		else
@@ -324,10 +328,23 @@ function message_options($id, $mode, $global_privmsgs_rules, $global_rule_condit
 				trigger_error('RULE_ALREADY_DEFINED');
 			}
 
+			// Prevent users from flooding the rules table
+			$sql = 'SELECT COUNT(rule_id) AS num_rules
+				FROM ' . PRIVMSGS_RULES_TABLE . '
+				WHERE user_id = ' . (int) $user->data['user_id'];
+			$result = $db->sql_query($sql);
+			$num_rules = (int) $db->sql_fetchfield('num_rules');
+			$db->sql_freeresult($result);
+
+			if ($num_rules >= 5000)
+			{
+				trigger_error('RULE_LIMIT_REACHED');
+			}
+
 			$sql = 'INSERT INTO ' . PRIVMSGS_RULES_TABLE . ' ' . $db->sql_build_array('INSERT', $rule_ary);
 			$db->sql_query($sql);
 
-			// Update users message rules
+			// Set the user_message_rules bit
 			$sql = 'UPDATE ' . USERS_TABLE . '
 				SET user_message_rules = 1
 				WHERE user_id = ' . $user->data['user_id'];
@@ -374,7 +391,7 @@ function message_options($id, $mode, $global_privmsgs_rules, $global_rule_condit
 			$row = $db->sql_fetchrow($result);
 			$db->sql_freeresult($result);
 
-			// Update users message rules
+			// Unset the user_message_rules bit
 			if (!$row)
 			{
 				$sql = 'UPDATE ' . USERS_TABLE . '
@@ -633,12 +650,29 @@ function define_action_option($hardcoded, $action_option, $action_lang, $folder)
 function define_rule_option($hardcoded, $rule_option, $rule_lang, $check_ary)
 {
 	global $template;
+	global $module;
+
+	$exclude = array();
+
+	if (!$module->loaded('zebra', 'friends'))
+	{
+		$exclude[RULE_IS_FRIEND] = true;
+	}
+
+	if (!$module->loaded('zebra', 'foes'))
+	{
+		$exclude[RULE_IS_FOE] = true;
+	}
 
 	$s_rule_options = '';
 	if (!$hardcoded)
 	{
 		foreach ($check_ary as $value => $_check)
 		{
+			if (isset($exclude[$value]))
+			{
+				continue;
+			}
 			$s_rule_options .= '<option value="' . $value . '"' . (($value == $rule_option) ? ' selected="selected"' : '') . '>' . $rule_lang[$value] . '</option>';
 		}
 	}

@@ -2,7 +2,7 @@
 /**
 *
 * @package acp
-* @version $Id: acp_email.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -82,23 +82,48 @@ class acp_email
 				{
 					if ($group_id)
 					{
-						$sql = 'SELECT u.user_email, u.username, u.username_clean, u.user_lang, u.user_jabber, u.user_notify_type
-							FROM ' . USERS_TABLE . ' u, ' . USER_GROUP_TABLE . ' ug
-							WHERE ug.group_id = ' . $group_id . '
+						$sql_ary = array(
+							'SELECT'	=> 'u.user_email, u.username, u.username_clean, u.user_lang, u.user_jabber, u.user_notify_type',
+							'FROM'		=> array(
+								USERS_TABLE			=> 'u',
+								USER_GROUP_TABLE	=> 'ug',
+							),
+							'WHERE'		=> 'ug.group_id = ' . $group_id . '
 								AND ug.user_pending = 0
 								AND u.user_id = ug.user_id
 								AND u.user_allow_massemail = 1
-								AND u.user_type IN (' . USER_NORMAL . ', ' . USER_FOUNDER . ')
-							ORDER BY u.user_lang, u.user_notify_type';
+								AND u.user_type IN (' . USER_NORMAL . ', ' . USER_FOUNDER . ')',
+							'ORDER_BY'	=> 'u.user_lang, u.user_notify_type',
+						);
 					}
 					else
 					{
-						$sql = 'SELECT username, username_clean, user_email, user_jabber, user_notify_type, user_lang
-							FROM ' . USERS_TABLE . '
-							WHERE user_allow_massemail = 1
-								AND user_type IN (' . USER_NORMAL . ', ' . USER_FOUNDER . ')
-							ORDER BY user_lang, user_notify_type';
+						$sql_ary = array(
+							'SELECT'	=> 'u.username, u.username_clean, u.user_email, u.user_jabber, u.user_lang, u.user_notify_type',
+							'FROM'		=> array(
+								USERS_TABLE	=> 'u',
+							),
+							'WHERE'		=> 'u.user_allow_massemail = 1
+								AND u.user_type IN (' . USER_NORMAL . ', ' . USER_FOUNDER . ')',
+							'ORDER_BY'	=> 'u.user_lang, u.user_notify_type',
+						);
 					}
+
+					// Mail banned or not
+					if (!isset($_REQUEST['mail_banned_flag']))
+					{
+						$sql_ary['WHERE'] .= ' AND (b.ban_id IS NULL
+						        OR b.ban_exclude = 1)';
+						$sql_ary['LEFT_JOIN'] = array(
+							array(
+								'FROM'	=> array(
+									BANLIST_TABLE	=> 'b',
+								),
+								'ON'	=> 'u.user_id = b.ban_userid',
+							),
+						);
+					}
+					$sql = $db->sql_build_query('SELECT', $sql_ary);
 				}
 				$result = $db->sql_query($sql);
 				$row = $db->sql_fetchrow($result);
@@ -108,11 +133,12 @@ class acp_email
 					$db->sql_freeresult($result);
 					trigger_error($user->lang['NO_USER'] . adm_back_link($this->u_action), E_USER_WARNING);
 				}
-	
+
 				$i = $j = 0;
 
-				// Send with BCC, no more than 50 recipients for one mail (to not exceed the limit)
-				$max_chunk_size = 50;
+				// Send with BCC
+				// Maximum number of bcc recipients
+				$max_chunk_size = (int) $config['email_max_chunk_size'];
 				$email_list = array();
 				$old_lang = $row['user_lang'];
 				$old_notify_type = $row['user_notify_type'];
@@ -121,7 +147,7 @@ class acp_email
 				{
 					if (($row['user_notify_type'] == NOTIFY_EMAIL && $row['user_email']) ||
 						($row['user_notify_type'] == NOTIFY_IM && $row['user_jabber']) ||
-						($row['user_notify_type'] == NOTIFY_BOTH && $row['user_email'] && $row['user_jabber']))
+						($row['user_notify_type'] == NOTIFY_BOTH && ($row['user_email'] || $row['user_jabber'])))
 					{
 						if ($i == $max_chunk_size || $row['user_lang'] != $old_lang || $row['user_notify_type'] != $old_notify_type)
 						{
@@ -169,11 +195,8 @@ class acp_email
 
 					$messenger->template('admin_send_email', $used_lang);
 
-					$messenger->headers('X-AntiAbuse: Board servername - ' . $config['server_name']);
-					$messenger->headers('X-AntiAbuse: User_id - ' . $user->data['user_id']);
-					$messenger->headers('X-AntiAbuse: Username - ' . $user->data['username']);
-					$messenger->headers('X-AntiAbuse: User IP - ' . $user->ip);
-			
+					$messenger->anti_abuse_headers($config, $user);
+
 					$messenger->subject(htmlspecialchars_decode($subject));
 					$messenger->set_mail_priority($priority);
 
@@ -181,7 +204,7 @@ class acp_email
 						'CONTACT_EMAIL' => $config['board_contact'],
 						'MESSAGE'		=> htmlspecialchars_decode($message))
 					);
-	
+
 					if (!($messenger->send($used_method)))
 					{
 						$errored = true;
@@ -239,7 +262,7 @@ class acp_email
 
 		$select_list = '<option value="0"' . ((!$group_id) ? ' selected="selected"' : '') . '>' . $user->lang['ALL_USERS'] . '</option>';
 		$select_list .= group_select_options($group_id, $exclude);
-		
+
 		$s_priority_options = '<option value="' . MAIL_LOW_PRIORITY . '">' . $user->lang['MAIL_LOW_PRIORITY'] . '</option>';
 		$s_priority_options .= '<option value="' . MAIL_NORMAL_PRIORITY . '" selected="selected">' . $user->lang['MAIL_NORMAL_PRIORITY'] . '</option>';
 		$s_priority_options .= '<option value="' . MAIL_HIGH_PRIORITY . '">' . $user->lang['MAIL_HIGH_PRIORITY'] . '</option>';

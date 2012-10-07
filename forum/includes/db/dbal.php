@@ -2,7 +2,7 @@
 /**
 *
 * @package dbal
-* @version $Id: dbal.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -34,7 +34,7 @@ class dbal
 	var $query_hold = '';
 	var $html_hold = '';
 	var $sql_report = '';
-	
+
 	var $persistency = false;
 	var $user = '';
 	var $server = '';
@@ -47,7 +47,7 @@ class dbal
 	var $sql_error_sql = '';
 	// Holding the error information - only populated if sql_error_triggered is set
 	var $sql_error_returned = array();
-	
+
 	// Holding transaction count
 	var $transactions = 0;
 
@@ -64,6 +64,11 @@ class dbal
 	*/
 	var $any_char;
 	var $one_char;
+
+	/**
+	* Exact version of the DBAL, directly queried
+	*/
+	var $sql_server_version = false;
 
 	/**
 	* Constructor
@@ -137,8 +142,14 @@ class dbal
 		{
 			$this->sql_freeresult($query_id);
 		}
-		
-		return $this->_sql_close();
+
+		// Connection closed correctly. Set db_connect_id to false to prevent errors
+		if ($result = $this->_sql_close())
+		{
+			$this->db_connect_id = false;
+		}
+
+		return $result;
 	}
 
 	/**
@@ -179,8 +190,51 @@ class dbal
 
 			return $result;
 		}
-		
+
 		return false;
+	}
+
+	/**
+	* Seek to given row number
+	* rownum is zero-based
+	*/
+	function sql_rowseek($rownum, &$query_id)
+	{
+		global $cache;
+
+		if ($query_id === false)
+		{
+			$query_id = $this->query_result;
+		}
+
+		if (isset($cache->sql_rowset[$query_id]))
+		{
+			return $cache->sql_rowseek($rownum, $query_id);
+		}
+
+		if ($query_id === false)
+		{
+			return false;
+		}
+
+		$this->sql_freeresult($query_id);
+		$query_id = $this->sql_query($this->last_query_text);
+
+		if ($query_id === false)
+		{
+			return false;
+		}
+
+		// We do not fetch the row for rownum == 0 because then the next resultset would be the second row
+		for ($i = 0; $i < $rownum; $i++)
+		{
+			if (!$this->sql_fetchrow($query_id))
+			{
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -224,10 +278,20 @@ class dbal
 	*/
 	function sql_like_expression($expression)
 	{
-		$expression = str_replace(array('_', '%'), array("\_", "\%"), $expression);
-		$expression = str_replace(array(chr(0) . "\_", chr(0) . "\%"), array('_', '%'), $expression);
+		$expression = utf8_str_replace(array('_', '%'), array("\_", "\%"), $expression);
+		$expression = utf8_str_replace(array(chr(0) . "\_", chr(0) . "\%"), array('_', '%'), $expression);
 
 		return $this->_sql_like_expression('LIKE \'' . $this->sql_escape($expression) . '\'');
+	}
+
+	/**
+	* Returns whether results of a query need to be buffered to run a transaction while iterating over them.
+	*
+	* @return bool Whether buffering is required.
+	*/
+	function sql_buffer_nested_transactions()
+	{
+		return false;
 	}
 
 	/**
@@ -300,7 +364,7 @@ class dbal
 	* Build sql statement from array for insert/update/select statements
 	*
 	* Idea for this from Ikonboard
-	* Possible query values: INSERT, INSERT_SELECT, MULTI_INSERT, UPDATE, SELECT
+	* Possible query values: INSERT, INSERT_SELECT, UPDATE, SELECT
 	*
 	*/
 	function sql_build_array($query, $assoc_ary = false)
@@ -333,24 +397,7 @@ class dbal
 		}
 		else if ($query == 'MULTI_INSERT')
 		{
-			$ary = array();
-			foreach ($assoc_ary as $id => $sql_ary)
-			{
-				// If by accident the sql array is only one-dimensional we build a normal insert statement
-				if (!is_array($sql_ary))
-				{
-					return $this->sql_build_array('INSERT', $assoc_ary);
-				}
-
-				$values = array();
-				foreach ($sql_ary as $key => $var)
-				{
-					$values[] = $this->_sql_validate_value($var);
-				}
-				$ary[] = '(' . implode(', ', $values) . ')';
-			}
-
-			$query = ' (' . implode(', ', array_keys($assoc_ary[0])) . ') VALUES ' . implode(', ', $ary);
+			trigger_error('The MULTI_INSERT query value is no longer supported. Please use sql_multi_insert() instead.', E_USER_ERROR);
 		}
 		else if ($query == 'UPDATE' || $query == 'SELECT')
 		{
@@ -418,6 +465,54 @@ class dbal
 	}
 
 	/**
+	* Run binary AND operator on DB column.
+	* Results in sql statement: "{$column_name} & (1 << {$bit}) {$compare}"
+	*
+	* @param string $column_name The column name to use
+	* @param int $bit The value to use for the AND operator, will be converted to (1 << $bit). Is used by options, using the number schema... 0, 1, 2...29
+	* @param string $compare Any custom SQL code after the check (for example "= 0")
+	*/
+	function sql_bit_and($column_name, $bit, $compare = '')
+	{
+		if (method_exists($this, '_sql_bit_and'))
+		{
+			return $this->_sql_bit_and($column_name, $bit, $compare);
+		}
+
+		return $column_name . ' & ' . (1 << $bit) . (($compare) ? ' ' . $compare : '');
+	}
+
+	/**
+	* Run binary OR operator on DB column.
+	* Results in sql statement: "{$column_name} | (1 << {$bit}) {$compare}"
+	*
+	* @param string $column_name The column name to use
+	* @param int $bit The value to use for the OR operator, will be converted to (1 << $bit). Is used by options, using the number schema... 0, 1, 2...29
+	* @param string $compare Any custom SQL code after the check (for example "= 0")
+	*/
+	function sql_bit_or($column_name, $bit, $compare = '')
+	{
+		if (method_exists($this, '_sql_bit_or'))
+		{
+			return $this->_sql_bit_or($column_name, $bit, $compare);
+		}
+
+		return $column_name . ' | ' . (1 << $bit) . (($compare) ? ' ' . $compare : '');
+	}
+
+	/**
+	* Run LOWER() on DB column of type text (i.e. neither varchar nor char).
+	*
+	* @param string $column_name	The column name to use
+	*
+	* @return string				A SQL statement like "LOWER($column_name)"
+	*/
+	function sql_lower_text($column_name)
+	{
+		return "LOWER($column_name)";
+	}
+
+	/**
 	* Run more than one insert statement.
 	*
 	* @param string $table table name to run the statements on
@@ -435,7 +530,24 @@ class dbal
 
 		if ($this->multi_insert)
 		{
-			$this->sql_query('INSERT INTO ' . $table . ' ' . $this->sql_build_array('MULTI_INSERT', $sql_ary));
+			$ary = array();
+			foreach ($sql_ary as $id => $_sql_ary)
+			{
+				// If by accident the sql array is only one-dimensional we build a normal insert statement
+				if (!is_array($_sql_ary))
+				{
+					return $this->sql_query('INSERT INTO ' . $table . ' ' . $this->sql_build_array('INSERT', $sql_ary));
+				}
+
+				$values = array();
+				foreach ($_sql_ary as $key => $var)
+				{
+					$values[] = $this->_sql_validate_value($var);
+				}
+				$ary[] = '(' . implode(', ', $values) . ')';
+			}
+
+			return $this->sql_query('INSERT INTO ' . $table . ' ' . ' (' . implode(', ', array_keys($sql_ary[0])) . ') VALUES ' . implode(', ', $ary));
 		}
 		else
 		{
@@ -446,7 +558,12 @@ class dbal
 					return false;
 				}
 
-				$this->sql_query('INSERT INTO ' . $table . ' ' . $this->sql_build_array('INSERT', $ary));
+				$result = $this->sql_query('INSERT INTO ' . $table . ' ' . $this->sql_build_array('INSERT', $ary));
+
+				if (!$result)
+				{
+					return false;
+				}
 			}
 		}
 
@@ -488,23 +605,66 @@ class dbal
 
 				$sql = str_replace('_', ' ', $query) . ' ' . $array['SELECT'] . ' FROM ';
 
-				$table_array = array();
+				// Build table array. We also build an alias array for later checks.
+				$table_array = $aliases = array();
+				$used_multi_alias = false;
+
 				foreach ($array['FROM'] as $table_name => $alias)
 				{
 					if (is_array($alias))
 					{
+						$used_multi_alias = true;
+
 						foreach ($alias as $multi_alias)
 						{
 							$table_array[] = $table_name . ' ' . $multi_alias;
+							$aliases[] = $multi_alias;
 						}
 					}
 					else
 					{
 						$table_array[] = $table_name . ' ' . $alias;
+						$aliases[] = $alias;
 					}
 				}
 
-				$sql .= $this->_sql_custom_build('FROM', implode(', ', $table_array));
+				// We run the following code to determine if we need to re-order the table array. ;)
+				// The reason for this is that for multi-aliased tables (two equal tables) in the FROM statement the last table need to match the first comparison.
+				// DBMS who rely on this: Oracle, PostgreSQL and MSSQL. For all other DBMS it makes absolutely no difference in which order the table is.
+				if (!empty($array['LEFT_JOIN']) && sizeof($array['FROM']) > 1 && $used_multi_alias !== false)
+				{
+					// Take first LEFT JOIN
+					$join = current($array['LEFT_JOIN']);
+
+					// Determine the table used there (even if there are more than one used, we only want to have one
+					preg_match('/(' . implode('|', $aliases) . ')\.[^\s]+/U', str_replace(array('(', ')', 'AND', 'OR', ' '), '', $join['ON']), $matches);
+
+					// If there is a first join match, we need to make sure the table order is correct
+					if (!empty($matches[1]))
+					{
+						$first_join_match = trim($matches[1]);
+						$table_array = $last = array();
+
+						foreach ($array['FROM'] as $table_name => $alias)
+						{
+							if (is_array($alias))
+							{
+								foreach ($alias as $multi_alias)
+								{
+									($multi_alias === $first_join_match) ? $last[] = $table_name . ' ' . $multi_alias : $table_array[] = $table_name . ' ' . $multi_alias;
+								}
+							}
+							else
+							{
+								($alias === $first_join_match) ? $last[] = $table_name . ' ' . $alias : $table_array[] = $table_name . ' ' . $alias;
+							}
+						}
+
+						$table_array = array_merge($table_array, $last);
+					}
+				}
+
+				$sql .= $this->_sql_custom_build('FROM', implode(' CROSS JOIN ', $table_array));
 
 				if (!empty($array['LEFT_JOIN']))
 				{
@@ -557,12 +717,7 @@ class dbal
 			// The DEBUG_EXTRA constant is for development only!
 			if ((isset($auth) && $auth->acl_get('a_')) || defined('IN_INSTALL') || defined('DEBUG_EXTRA'))
 			{
-				// Print out a nice backtrace...
-				$backtrace = get_backtrace();
-
 				$message .= ($sql) ? '<br /><br />SQL<br /><br />' . htmlspecialchars($sql) : '';
-				$message .= ($backtrace) ? '<br /><br />BACKTRACE<br />' . $backtrace : '';
-				$message .= '<br />';
 			}
 			else
 			{
@@ -672,7 +827,7 @@ class dbal
 							</div>
 						</div>
 						<div id="page-footer">
-							Powered by phpBB &copy; 2000, 2002, 2005, 2007 <a href="http://www.phpbb.com/">phpBB Group</a>
+							Powered by <a href="http://www.phpbb.com/">phpBB</a>&reg; Forum Software &copy; phpBB Group
 						</div>
 					</div>
 					</body>
@@ -700,7 +855,7 @@ class dbal
 					</tr>
 					</tbody>
 					</table>
-					
+
 					' . $this->html_hold . '
 
 					<p style="text-align: center;">
@@ -728,24 +883,24 @@ class dbal
 			case 'start':
 				$this->query_hold = $query;
 				$this->html_hold = '';
-			
+
 				$this->_sql_report($mode, $query);
 
 				$this->curtime = explode(' ', microtime());
 				$this->curtime = $this->curtime[0] + $this->curtime[1];
 
 			break;
-			
+
 			case 'add_select_row':
 
 				$html_table = func_get_arg(2);
 				$row = func_get_arg(3);
-				
+
 				if (!$html_table && sizeof($row))
 				{
 					$html_table = true;
 					$this->html_hold .= '<table cellspacing="1"><tr>';
-								
+
 					foreach (array_keys($row) as $val)
 					{
 						$this->html_hold .= '<th>' . (($val) ? ucwords(str_replace('_', ' ', $val)) : '&nbsp;') . '</th>';
@@ -761,7 +916,7 @@ class dbal
 					$this->html_hold .= '<td class="' . $class . '">' . (($val) ? $val : '&nbsp;') . '</td>';
 				}
 				$this->html_hold .= '</tr>';
-			
+
 				return $html_table;
 
 			break;
@@ -792,13 +947,48 @@ class dbal
 			break;
 
 			default:
-			
+
 				$this->_sql_report($mode, $query);
 
 			break;
 		}
 
 		return true;
+	}
+
+	/**
+	* Gets the estimated number of rows in a specified table.
+	*
+	* @param string $table_name		Table name
+	*
+	* @return string				Number of rows in $table_name.
+	*								Prefixed with ~ if estimated (otherwise exact).
+	*
+	* @access public
+	*/
+	function get_estimated_row_count($table_name)
+	{
+		return $this->get_row_count($table_name);
+	}
+
+	/**
+	* Gets the exact number of rows in a specified table.
+	*
+	* @param string $table_name		Table name
+	*
+	* @return string				Exact number of rows in $table_name.
+	*
+	* @access public
+	*/
+	function get_row_count($table_name)
+	{
+		$sql = 'SELECT COUNT(*) AS rows_total
+			FROM ' . $this->sql_escape($table_name);
+		$result = $this->sql_query($sql);
+		$rows_total = $this->sql_fetchfield('rows_total');
+		$this->sql_freeresult($result);
+
+		return $rows_total;
 	}
 }
 

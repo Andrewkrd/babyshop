@@ -2,7 +2,7 @@
 /**
 *
 * @package dbal
-* @version $Id: firebird.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -20,7 +20,7 @@ include_once($phpbb_root_path . 'includes/db/dbal.' . $phpEx);
 
 /**
 * Firebird/Interbase Database Abstraction Layer
-* Minimum Requirement is Firebird 2.0
+* Minimum Requirement is Firebird 2.1
 * @package dbal
 */
 class dbal_firebird extends dbal
@@ -28,6 +28,7 @@ class dbal_firebird extends dbal
 	var $last_query_text = '';
 	var $service_handle = false;
 	var $affected_rows = 0;
+	var $connect_error = '';
 
 	/**
 	* Connect to server
@@ -37,26 +38,77 @@ class dbal_firebird extends dbal
 		$this->persistency = $persistency;
 		$this->user = $sqluser;
 		$this->server = $sqlserver . (($port) ? ':' . $port : '');
-		$this->dbname = $database;
+		$this->dbname = str_replace('\\', '/', $database);
 
-		$this->db_connect_id = ($this->persistency) ? @ibase_pconnect($this->server . ':' . $this->dbname, $this->user, $sqlpassword, false, false, 3) : @ibase_connect($this->server . ':' . $this->dbname, $this->user, $sqlpassword, false, false, 3);
+		// There are three possibilities to connect to an interbase db
+		if (!$this->server)
+		{
+			$use_database = $this->dbname;
+		}
+		else if (strpos($this->server, '//') === 0)
+		{
+			$use_database = $this->server . $this->dbname;
+		}
+		else
+		{
+			$use_database = $this->server . ':' . $this->dbname;
+		}
 
-		$this->service_handle = (function_exists('ibase_service_attach')) ? @ibase_service_attach($this->server, $this->user, $sqlpassword) : false;
+		if ($this->persistency)
+		{
+			if (!function_exists('ibase_pconnect'))
+			{
+				$this->connect_error = 'ibase_pconnect function does not exist, is interbase extension installed?';
+				return $this->sql_error('');
+			}
+			$this->db_connect_id = @ibase_pconnect($use_database, $this->user, $sqlpassword, false, false, 3);
+		}
+		else
+		{
+			if (!function_exists('ibase_connect'))
+			{
+				$this->connect_error = 'ibase_connect function does not exist, is interbase extension installed?';
+				return $this->sql_error('');
+			}
+			$this->db_connect_id = @ibase_connect($use_database, $this->user, $sqlpassword, false, false, 3);
+		}
+
+		// Do not call ibase_service_attach if connection failed,
+		// otherwise error message from ibase_(p)connect call will be clobbered.
+		if ($this->db_connect_id && function_exists('ibase_service_attach') && $this->server)
+		{
+			$this->service_handle = @ibase_service_attach($this->server, $this->user, $sqlpassword);
+		}
+		else
+		{
+			$this->service_handle = false;
+		}
 
 		return ($this->db_connect_id) ? $this->db_connect_id : $this->sql_error('');
 	}
 
 	/**
 	* Version information about used database
+	* @param bool $raw if true, only return the fetched sql_server_version
+	* @param bool $use_cache forced to false for Interbase
+	* @return string sql server version
 	*/
-	function sql_server_info()
+	function sql_server_info($raw = false, $use_cache = true)
 	{
+		/**
+		* force $use_cache false.  I didn't research why the caching code there is no caching code
+		* but I assume its because the IB extension provides a direct method to access it
+		* without a query.
+		*/
+
+		$use_cache = false;
+
 		if ($this->service_handle !== false && function_exists('ibase_server_info'))
 		{
 			return @ibase_server_info($this->service_handle, IBASE_SVC_SERVER_VERSION);
 		}
 
-		return 'Firebird/Interbase';
+		return ($raw) ? '2.1' : 'Firebird/Interbase';
 	}
 
 	/**
@@ -238,7 +290,7 @@ class dbal_firebird extends dbal
 			return false;
 		}
 
-		return ($this->query_result) ? $this->query_result : false;
+		return $this->query_result;
 	}
 
 	/**
@@ -308,49 +360,6 @@ class dbal_firebird extends dbal
 	}
 
 	/**
-	* Seek to given row number
-	* rownum is zero-based
-	*/
-	function sql_rowseek($rownum, &$query_id)
-	{
-		global $cache;
-
-		if ($query_id === false)
-		{
-			$query_id = $this->query_result;
-		}
-
-		if (isset($cache->sql_rowset[$query_id]))
-		{
-			return $cache->sql_rowseek($rownum, $query_id);
-		}
-
-		if ($query_id === false)
-		{
-			return;
-		}
-
-		$this->sql_freeresult($query_id);
-		$query_id = $this->sql_query($this->last_query_text);
-
-		if ($query_id === false)
-		{
-			return false;
-		}
-
-		// We do not fetch the row for rownum == 0 because then the next resultset would be the second row
-		for ($i = 0; $i < $rownum; $i++)
-		{
-			if (!$this->sql_fetchrow($query_id))
-			{
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/**
 	* Get last inserted id after insert statement
 	*/
 	function sql_nextid()
@@ -409,7 +418,7 @@ class dbal_firebird extends dbal
 	*/
 	function sql_escape($msg)
 	{
-		return str_replace("'", "''", $msg);
+		return str_replace(array("'", "\0"), array("''", ''), $msg);
 	}
 
 	/**
@@ -430,14 +439,40 @@ class dbal_firebird extends dbal
 		return $data;
 	}
 
+	function _sql_bit_and($column_name, $bit, $compare = '')
+	{
+		return 'BIN_AND(' . $column_name . ', ' . (1 << $bit) . ')' . (($compare) ? ' ' . $compare : '');
+	}
+
+	function _sql_bit_or($column_name, $bit, $compare = '')
+	{
+		return 'BIN_OR(' . $column_name . ', ' . (1 << $bit) . ')' . (($compare) ? ' ' . $compare : '');
+	}
+
 	/**
 	* return sql error array
 	* @access private
 	*/
 	function _sql_error()
 	{
+		// Need special handling here because ibase_errmsg returns
+		// connection errors, however if the interbase extension
+		// is not installed then ibase_errmsg does not exist and
+		// we cannot call it.
+		if (function_exists('ibase_errmsg'))
+		{
+			$msg = @ibase_errmsg();
+			if (!$msg)
+			{
+				$msg = $this->connect_error;
+			}
+		}
+		else
+		{
+			$msg = $this->connect_error;
+		}
 		return array(
-			'message'	=> @ibase_errmsg(),
+			'message'	=> $msg,
 			'code'		=> (@function_exists('ibase_errcode') ? @ibase_errcode() : '')
 		);
 	}

@@ -2,7 +2,7 @@
 /**
 *
 * @package ucp
-* @version $Id: ucp_prefs.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -53,13 +53,26 @@ class ucp_prefs
 					'allowpm'		=> request_var('allowpm', (bool) $user->data['user_allow_pm']),
 				);
 
+				if ($data['notifymethod'] == NOTIFY_IM && (!$config['jab_enable'] || !$user->data['user_jabber'] || !@extension_loaded('xml')))
+				{
+					// Jabber isnt enabled, or no jabber field filled in. Update the users table to be sure its correct.
+					$data['notifymethod'] = NOTIFY_BOTH;
+				}
+
 				if ($submit)
 				{
-					$data['style'] = ($config['override_user_style']) ? $config['default_style'] : $data['style'];
+					if ($config['override_user_style'])
+					{
+						$data['style'] = (int) $config['default_style'];
+					}
+					else if (!phpbb_style_is_active($data['style']))
+					{
+						$data['style'] = (int) $user->data['user_style'];
+					}
 
 					$error = validate_data($data, array(
 						'dateformat'	=> array('string', false, 1, 30),
-						'lang'			=> array('match', false, '#^[a-z0-9_\-]{2,}$#i'),
+						'lang'			=> array('language_iso_name'),
 						'tz'			=> array('num', false, -14, 14),
 					));
 
@@ -276,7 +289,7 @@ class ucp_prefs
 					'S_AVATARS'			=> $data['avatars'],
 					'S_DISABLE_CENSORS'	=> $data['wordcensor'],
 
-					'S_CHANGE_CENSORS'		=> ($auth->acl_get('u_chgcensors')) ? true : false,
+					'S_CHANGE_CENSORS'		=> ($auth->acl_get('u_chgcensors') && $config['allow_nocensors']) ? true : false,
 
 					'S_TOPIC_SORT_DAYS'		=> $s_limit_topic_days,
 					'S_TOPIC_SORT_KEY'		=> $s_sort_topic_key,
@@ -294,7 +307,7 @@ class ucp_prefs
 					'bbcode'	=> request_var('bbcode', $user->optionget('bbcode')),
 					'smilies'	=> request_var('smilies', $user->optionget('smilies')),
 					'sig'		=> request_var('sig', $user->optionget('attachsig')),
-					'notify'	=> request_var('notify', $user->data['user_notify']),
+					'notify'	=> request_var('notify', (bool) $user->data['user_notify']),
 				);
 				add_form_key('ucp_prefs_post');
 

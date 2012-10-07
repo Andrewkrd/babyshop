@@ -2,7 +2,7 @@
 /**
 *
 * @package acp
-* @version $Id: acp_forums.php 8479 2008-03-29 00:22:48Z naderman $
+* @version $Id$
 * @copyright (c) 2005 phpBB Group
 * @license http://opensource.org/licenses/gpl-license.php GNU Public License
 *
@@ -56,7 +56,7 @@ class acp_forums
 				$total = request_var('total', 0);
 
 				$this->display_progress_bar($start, $total);
-				exit_handler();
+				exit;
 			break;
 
 			case 'delete':
@@ -74,7 +74,7 @@ class acp_forums
 				{
 					trigger_error($user->lang['NO_PERMISSION_FORUM_ADD'] . adm_back_link($this->u_action . '&amp;parent_id=' . $this->parent_id), E_USER_WARNING);
 				}
-			
+
 			break;
 		}
 
@@ -100,7 +100,7 @@ class acp_forums
 					$cache->destroy('sql', FORUMS_TABLE);
 
 					trigger_error($user->lang['FORUM_DELETED'] . adm_back_link($this->u_action . '&amp;parent_id=' . $this->parent_id));
-	
+
 				break;
 
 				case 'edit':
@@ -139,6 +139,7 @@ class acp_forums
 						'enable_icons'			=> request_var('enable_icons', false),
 						'enable_prune'			=> request_var('enable_prune', false),
 						'enable_post_review'	=> request_var('enable_post_review', true),
+						'enable_quick_reply'	=> request_var('enable_quick_reply', false),
 						'prune_days'			=> request_var('prune_days', 7),
 						'prune_viewed'			=> request_var('prune_viewed', 7),
 						'prune_freq'			=> request_var('prune_freq', 1),
@@ -150,16 +151,25 @@ class acp_forums
 						'forum_password_unset'	=> request_var('forum_password_unset', false),
 					);
 
+					// On add, add empty forum_options... else do not consider it (not updating it)
+					if ($action == 'add')
+					{
+						$forum_data['forum_options'] = 0;
+					}
+
 					// Use link_display_on_index setting if forum type is link
 					if ($forum_data['forum_type'] == FORUM_LINK)
 					{
 						$forum_data['display_on_index'] = request_var('link_display_on_index', false);
+					}
 
-						// Linked forums are not able to be locked...
+					// Linked forums and categories are not able to be locked...
+					if ($forum_data['forum_type'] == FORUM_LINK || $forum_data['forum_type'] == FORUM_CAT)
+					{
 						$forum_data['forum_status'] = ITEM_UNLOCKED;
 					}
 
-					$forum_data['show_active'] = ($forum_data['forum_type'] == FORUM_POST) ? request_var('display_recent', false) : request_var('display_active', false);
+					$forum_data['show_active'] = ($forum_data['forum_type'] == FORUM_POST) ? request_var('display_recent', true) : request_var('display_active', false);
 
 					// Get data for forum rules if specified...
 					if ($forum_data['forum_rules'])
@@ -178,87 +188,35 @@ class acp_forums
 					if (!sizeof($errors))
 					{
 						$forum_perm_from = request_var('forum_perm_from', 0);
-
-						// Copy permissions?
-						if ($forum_perm_from && !empty($forum_perm_from) && $forum_perm_from != $forum_data['forum_id'] &&
-							(($action != 'edit') || empty($forum_id) || ($auth->acl_get('a_fauth') && $auth->acl_get('a_authusers') && $auth->acl_get('a_authgroups') && $auth->acl_get('a_mauth'))))
-						{
-							// if we edit a forum delete current permissions first
-							if ($action == 'edit')
-							{
-								$sql = 'DELETE FROM ' . ACL_USERS_TABLE . '
-									WHERE forum_id = ' . (int) $forum_data['forum_id'];
-								$db->sql_query($sql);
-	
-								$sql = 'DELETE FROM ' . ACL_GROUPS_TABLE . '
-									WHERE forum_id = ' . (int) $forum_data['forum_id'];
-								$db->sql_query($sql);
-							}
-
-							// From the mysql documentation:
-							// Prior to MySQL 4.0.14, the target table of the INSERT statement cannot appear in the FROM clause of the SELECT part of the query. This limitation is lifted in 4.0.14.
-							// Due to this we stay on the safe side if we do the insertion "the manual way"
-
-							// Copy permisisons from/to the acl users table (only forum_id gets changed)
-							$sql = 'SELECT user_id, auth_option_id, auth_role_id, auth_setting
-								FROM ' . ACL_USERS_TABLE . '
-								WHERE forum_id = ' . $forum_perm_from;
-							$result = $db->sql_query($sql);
-
-							$users_sql_ary = array();
-							while ($row = $db->sql_fetchrow($result))
-							{
-								$users_sql_ary[] = array(
-									'user_id'			=> (int) $row['user_id'],
-									'forum_id'			=> (int) $forum_data['forum_id'],
-									'auth_option_id'	=> (int) $row['auth_option_id'],
-									'auth_role_id'		=> (int) $row['auth_role_id'],
-									'auth_setting'		=> (int) $row['auth_setting']
-								);
-							}
-							$db->sql_freeresult($result);
-
-							// Copy permisisons from/to the acl groups table (only forum_id gets changed)
-							$sql = 'SELECT group_id, auth_option_id, auth_role_id, auth_setting
-								FROM ' . ACL_GROUPS_TABLE . '
-								WHERE forum_id = ' . $forum_perm_from;
-							$result = $db->sql_query($sql);
-
-							$groups_sql_ary = array();
-							while ($row = $db->sql_fetchrow($result))
-							{
-								$groups_sql_ary[] = array(
-									'group_id'			=> (int) $row['group_id'],
-									'forum_id'			=> (int) $forum_data['forum_id'],
-									'auth_option_id'	=> (int) $row['auth_option_id'],
-									'auth_role_id'		=> (int) $row['auth_role_id'],
-									'auth_setting'		=> (int) $row['auth_setting']
-								);
-							}
-							$db->sql_freeresult($result);
-
-							// Now insert the data
-							$db->sql_multi_insert(ACL_USERS_TABLE, $users_sql_ary);
-							$db->sql_multi_insert(ACL_GROUPS_TABLE, $groups_sql_ary);
-							cache_moderators();
-						}
-
-						$auth->acl_clear_prefetch();
 						$cache->destroy('sql', FORUMS_TABLE);
-	
+
+						$copied_permissions = false;
+						// Copy permissions?
+						if ($forum_perm_from && $forum_perm_from != $forum_data['forum_id'] &&
+							($action != 'edit' || empty($forum_id) || ($auth->acl_get('a_fauth') && $auth->acl_get('a_authusers') && $auth->acl_get('a_authgroups') && $auth->acl_get('a_mauth'))))
+						{
+							copy_forum_permissions($forum_perm_from, $forum_data['forum_id'], ($action == 'edit') ? true : false);
+							cache_moderators();
+							$copied_permissions = true;
+						}
+/* Commented out because of questionable UI workflow - re-visit for 3.0.7
+						else if (!$this->parent_id && $action != 'edit' && $auth->acl_get('a_fauth') && $auth->acl_get('a_authusers') && $auth->acl_get('a_authgroups') && $auth->acl_get('a_mauth'))
+						{
+							$this->copy_permission_page($forum_data);
+							return;
+						}
+*/
+						$auth->acl_clear_prefetch();
+
 						$acl_url = '&amp;mode=setting_forum_local&amp;forum_id[]=' . $forum_data['forum_id'];
 
 						$message = ($action == 'add') ? $user->lang['FORUM_CREATED'] : $user->lang['FORUM_UPDATED'];
 
-						// Redirect to permissions
-						if ($auth->acl_get('a_fauth'))
+						// redirect directly to permission settings screen if authed
+						if ($action == 'add' && !$copied_permissions && $auth->acl_get('a_fauth'))
 						{
 							$message .= '<br /><br />' . sprintf($user->lang['REDIRECT_ACL'], '<a href="' . append_sid("{$phpbb_admin_path}index.$phpEx", 'i=permissions' . $acl_url) . '">', '</a>');
-						}
 
-						// redirect directly to permission settings screen if authed
-						if ($action == 'add' && !$forum_perm_from && $auth->acl_get('a_fauth'))
-						{
 							meta_refresh(4, append_sid("{$phpbb_admin_path}index.$phpEx", 'i=permissions' . $acl_url));
 						}
 
@@ -420,6 +378,7 @@ class acp_forums
 					$forum_data['forum_flags'] += (request_var('prune_sticky', false)) ? FORUM_FLAG_PRUNE_STICKY : 0;
 					$forum_data['forum_flags'] += ($forum_data['show_active']) ? FORUM_FLAG_ACTIVE_TOPICS : 0;
 					$forum_data['forum_flags'] += (request_var('enable_post_review', true)) ? FORUM_FLAG_POST_REVIEW : 0;
+					$forum_data['forum_flags'] += (request_var('enable_quick_reply', false)) ? FORUM_FLAG_QUICK_REPLY : 0;
 				}
 
 				// Show form to create/modify a forum
@@ -481,7 +440,8 @@ class acp_forums
 							'prune_days'			=> 7,
 							'prune_viewed'			=> 7,
 							'prune_freq'			=> 1,
-							'forum_flags'			=> FORUM_FLAG_POST_REVIEW,
+							'forum_flags'			=> FORUM_FLAG_POST_REVIEW + FORUM_FLAG_ACTIVE_TOPICS,
+							'forum_options'			=> 0,
 							'forum_password'		=> '',
 							'forum_password_confirm'=> '',
 						);
@@ -543,7 +503,7 @@ class acp_forums
 
 				$forum_type_options = '';
 				$forum_type_ary = array(FORUM_CAT => 'CAT', FORUM_POST => 'FORUM', FORUM_LINK => 'LINK');
-		
+
 				foreach ($forum_type_ary as $value => $lang)
 				{
 					$forum_type_options .= '<option value="' . $value . '"' . (($value == $forum_data['forum_type']) ? ' selected="selected"' : '') . '>' . $user->lang['TYPE_' . $lang] . '</option>';
@@ -557,13 +517,12 @@ class acp_forums
 					FROM ' . FORUMS_TABLE . '
 					WHERE forum_type = ' . FORUM_POST . "
 						AND forum_id <> $forum_id";
-				$result = $db->sql_query($sql);
+				$result = $db->sql_query_limit($sql, 1);
 
+				$postable_forum_exists = false;
 				if ($db->sql_fetchrow($result))
 				{
-					$template->assign_vars(array(
-						'S_MOVE_FORUM_OPTIONS'		=> make_forum_select($forum_data['parent_id'], $forum_id, false, true, false))
-					);
+					$postable_forum_exists = true;
 				}
 				$db->sql_freeresult($result);
 
@@ -580,23 +539,22 @@ class acp_forums
 
 					$forums_list = make_forum_select($forum_data['parent_id'], $subforums_id);
 
-					$sql = 'SELECT forum_id
-						FROM ' . FORUMS_TABLE . '
-						WHERE forum_type = ' . FORUM_POST . "
-							AND forum_id <> $forum_id";
-					$result = $db->sql_query($sql);
-
-					if ($db->sql_fetchrow($result))
+					if ($postable_forum_exists)
 					{
 						$template->assign_vars(array(
 							'S_MOVE_FORUM_OPTIONS'		=> make_forum_select($forum_data['parent_id'], $subforums_id)) // , false, true, false???
 						);
 					}
-					$db->sql_freeresult($result);
 
 					$template->assign_vars(array(
 						'S_HAS_SUBFORUMS'		=> ($forum_data['right_id'] - $forum_data['left_id'] > 1) ? true : false,
 						'S_FORUMS_LIST'			=> $forums_list)
+					);
+				}
+				else if ($postable_forum_exists)
+				{
+					$template->assign_vars(array(
+						'S_MOVE_FORUM_OPTIONS'		=> make_forum_select($forum_data['parent_id'], $forum_id, false, true, false))
 					);
 				}
 
@@ -613,7 +571,7 @@ class acp_forums
 						}
 					}
 				}
-				
+
 				if (strlen($forum_data['forum_password']) == 32)
 				{
 					$errors[] = $user->lang['FORUM_PASSWORD_OLD'];
@@ -679,8 +637,10 @@ class acp_forums
 					'S_PRUNE_OLD_POLLS'			=> ($forum_data['forum_flags'] & FORUM_FLAG_PRUNE_POLL) ? true : false,
 					'S_PRUNE_ANNOUNCE'			=> ($forum_data['forum_flags'] & FORUM_FLAG_PRUNE_ANNOUNCE) ? true : false,
 					'S_PRUNE_STICKY'			=> ($forum_data['forum_flags'] & FORUM_FLAG_PRUNE_STICKY) ? true : false,
-					'S_DISPLAY_ACTIVE_TOPICS'	=> ($forum_data['forum_flags'] & FORUM_FLAG_ACTIVE_TOPICS) ? true : false,
+					'S_DISPLAY_ACTIVE_TOPICS'	=> ($forum_data['forum_type'] == FORUM_POST) ? ($forum_data['forum_flags'] & FORUM_FLAG_ACTIVE_TOPICS) : true,
+					'S_ENABLE_ACTIVE_TOPICS'	=> ($forum_data['forum_type'] == FORUM_CAT) ? ($forum_data['forum_flags'] & FORUM_FLAG_ACTIVE_TOPICS) : false,
 					'S_ENABLE_POST_REVIEW'		=> ($forum_data['forum_flags'] & FORUM_FLAG_POST_REVIEW) ? true : false,
+					'S_ENABLE_QUICK_REPLY'		=> ($forum_data['forum_flags'] & FORUM_FLAG_QUICK_REPLY) ? true : false,
 					'S_CAN_COPY_PERMISSIONS'	=> ($action != 'edit' || empty($forum_id) || ($auth->acl_get('a_fauth') && $auth->acl_get('a_authusers') && $auth->acl_get('a_authgroups') && $auth->acl_get('a_mauth'))) ? true : false,
 				));
 
@@ -711,7 +671,7 @@ class acp_forums
 					FROM ' . FORUMS_TABLE . '
 					WHERE forum_type = ' . FORUM_POST . "
 						AND forum_id <> $forum_id";
-				$result = $db->sql_query($sql);
+				$result = $db->sql_query_limit($sql, 1);
 
 				if ($db->sql_fetchrow($result))
 				{
@@ -738,6 +698,32 @@ class acp_forums
 				);
 
 				return;
+			break;
+
+			case 'copy_perm':
+				$forum_perm_from = request_var('forum_perm_from', 0);
+
+				// Copy permissions?
+				if (!empty($forum_perm_from) && $forum_perm_from != $forum_id)
+				{
+					copy_forum_permissions($forum_perm_from, $forum_id, true);
+					cache_moderators();
+					$auth->acl_clear_prefetch();
+					$cache->destroy('sql', FORUMS_TABLE);
+
+					$acl_url = '&amp;mode=setting_forum_local&amp;forum_id[]=' . $forum_id;
+
+					$message = $user->lang['FORUM_UPDATED'];
+
+					// Redirect to permissions
+					if ($auth->acl_get('a_fauth'))
+					{
+						$message .= '<br /><br />' . sprintf($user->lang['REDIRECT_ACL'], '<a href="' . append_sid("{$phpbb_admin_path}index.$phpEx", 'i=permissions' . $acl_url) . '">', '</a>');
+					}
+
+					trigger_error($message . adm_back_link($this->u_action . '&amp;parent_id=' . $this->parent_id));
+				}
+
 			break;
 		}
 
@@ -803,10 +789,6 @@ class acp_forums
 				}
 
 				$url = $this->u_action . "&amp;parent_id=$this->parent_id&amp;f={$row['forum_id']}";
-
-				$forum_title = ($forum_type != FORUM_LINK) ? '<a href="' . $this->u_action . '&amp;parent_id=' . $row['forum_id'] . '">' : '';
-				$forum_title .= $row['forum_name'];
-				$forum_title .= ($forum_type != FORUM_LINK) ? '</a>' : '';
 
 				$template->assign_block_vars('forums', array(
 					'FOLDER_IMAGE'		=> $folder_image,
@@ -885,11 +867,11 @@ class acp_forums
 	*/
 	function update_forum_data(&$forum_data)
 	{
-		global $db, $user, $cache;
+		global $db, $user, $cache, $phpbb_root_path;
 
 		$errors = array();
 
-		if (!$forum_data['forum_name'])
+		if ($forum_data['forum_name'] == '')
 		{
 			$errors[] = $user->lang['FORUM_NAME_EMPTY'];
 		}
@@ -918,13 +900,17 @@ class acp_forums
 			$forum_data['prune_days'] = $forum_data['prune_viewed'] = $forum_data['prune_freq'] = 0;
 			$errors[] = $user->lang['FORUM_DATA_NEGATIVE'];
 		}
-		
+
 		$range_test_ary = array(
 			array('lang' => 'FORUM_TOPICS_PAGE', 'value' => $forum_data['forum_topics_per_page'], 'column_type' => 'TINT:0'),
 		);
+
+		if (!empty($forum_data['forum_image']) && !file_exists($phpbb_root_path . $forum_data['forum_image']))
+		{
+			$errors[] = $user->lang['FORUM_IMAGE_NO_EXIST'];
+		}
+
 		validate_range($range_test_ary, $errors);
-
-
 
 		// Set forum flags
 		// 1 = link tracking
@@ -940,6 +926,7 @@ class acp_forums
 		$forum_data['forum_flags'] += ($forum_data['prune_sticky']) ? FORUM_FLAG_PRUNE_STICKY : 0;
 		$forum_data['forum_flags'] += ($forum_data['show_active']) ? FORUM_FLAG_ACTIVE_TOPICS : 0;
 		$forum_data['forum_flags'] += ($forum_data['enable_post_review']) ? FORUM_FLAG_POST_REVIEW : 0;
+		$forum_data['forum_flags'] += ($forum_data['enable_quick_reply']) ? FORUM_FLAG_QUICK_REPLY : 0;
 
 		// Unset data that are not database fields
 		$forum_data_sql = $forum_data;
@@ -950,6 +937,7 @@ class acp_forums
 		unset($forum_data_sql['prune_sticky']);
 		unset($forum_data_sql['show_active']);
 		unset($forum_data_sql['enable_post_review']);
+		unset($forum_data_sql['enable_quick_reply']);
 		unset($forum_data_sql['forum_password_confirm']);
 
 		// What are we going to do tonight Brain? The same thing we do everynight,
@@ -974,7 +962,7 @@ class acp_forums
 			$forum_data_sql['forum_password'] = phpbb_hash($forum_data_sql['forum_password']);
 		}
 		unset($forum_data_sql['forum_password_unset']);
-		
+
 		if (!isset($forum_data_sql['forum_id']))
 		{
 			// no forum_id means we're creating a new forum
@@ -991,7 +979,7 @@ class acp_forums
 
 				if (!$row)
 				{
-					trigger_error($user->lang['PARENT_NOT_EXIST'] . adm_back_link($this->u_action . '&amp;' . $this->parent_id), E_USER_WARNING);
+					trigger_error($user->lang['PARENT_NOT_EXIST'] . adm_back_link($this->u_action . '&amp;parent_id=' . $this->parent_id), E_USER_WARNING);
 				}
 
 				if ($row['forum_type'] == FORUM_LINK)
@@ -1206,7 +1194,14 @@ class acp_forums
 
 			if ($row['parent_id'] != $forum_data_sql['parent_id'])
 			{
-				$errors = $this->move_forum($forum_data_sql['forum_id'], $forum_data_sql['parent_id']);
+				if ($row['forum_id'] != $forum_data_sql['parent_id'])
+				{
+					$errors = $this->move_forum($forum_data_sql['forum_id'], $forum_data_sql['parent_id']);
+				}
+				else
+				{
+					$forum_data_sql['parent_id'] = $row['parent_id'];
+				}
 			}
 
 			if (sizeof($errors))
@@ -1632,7 +1627,7 @@ class acp_forums
 			WHERE p.forum_id = $forum_id
 				AND a.in_message = 0
 				AND a.topic_id = p.topic_id";
-		$result = $db->sql_query($sql);	
+		$result = $db->sql_query($sql);
 
 		$topic_ids = array();
 		while ($row = $db->sql_fetchrow($result))
@@ -1643,11 +1638,15 @@ class acp_forums
 
 		delete_attachments('topic', $topic_ids, false);
 
+		// Delete shadow topics pointing to topics in this forum
+		delete_topic_shadows($forum_id);
+
 		// Before we remove anything we make sure we are able to adjust the post counts later. ;)
 		$sql = 'SELECT poster_id
 			FROM ' . POSTS_TABLE . '
 			WHERE forum_id = ' . $forum_id . '
-				AND post_postcount = 1';
+				AND post_postcount = 1
+				AND post_approved = 1';
 		$result = $db->sql_query($sql);
 
 		$post_counts = array();
@@ -1690,7 +1689,7 @@ class acp_forums
 			break;
 
 			default:
-			
+
 				// Delete everything else and curse your DB for not offering multi-table deletion
 				$tables_ary = array(
 					'post_id'	=>	array(
@@ -1708,6 +1707,9 @@ class acp_forums
 					)
 				);
 
+				// Amount of rows we select and delete in one iteration.
+				$batch_size = 500;
+
 				foreach ($tables_ary as $field => $tables)
 				{
 					$start = 0;
@@ -1717,7 +1719,7 @@ class acp_forums
 						$sql = "SELECT $field
 							FROM " . POSTS_TABLE . '
 							WHERE forum_id = ' . $forum_id;
-						$result = $db->sql_query_limit($sql, 500, $start);
+						$result = $db->sql_query_limit($sql, $batch_size, $start);
 
 						$ids = array();
 						while ($row = $db->sql_fetchrow($result))
@@ -1736,7 +1738,7 @@ class acp_forums
 							}
 						}
 					}
-					while ($row);
+					while (sizeof($ids) == $batch_size);
 				}
 				unset($ids);
 
@@ -1768,6 +1770,7 @@ class acp_forums
 					WHERE user_id = ' . $poster_id . '
 					AND user_posts < ' . $substract;
 				$db->sql_query($sql);
+
 				$sql = 'UPDATE ' . USERS_TABLE . '
 					SET user_posts = user_posts - ' . $substract . '
 					WHERE user_id = ' . $poster_id . '
@@ -1811,7 +1814,7 @@ class acp_forums
 		$row = $db->sql_fetchrow($result);
 		$db->sql_freeresult($result);
 
-		set_config('upload_dir_size', (int) $row['stat'], true);
+		set_config('upload_dir_size', (float) $row['stat'], true);
 
 		return array();
 	}
@@ -1917,6 +1920,31 @@ class acp_forums
 
 		adm_page_footer();
 	}
+
+	/**
+	* Display copy permission page
+	* Not used at the moment - we will have a look at it for 3.0.7
+	*/
+	function copy_permission_page($forum_data)
+	{
+		global $phpEx, $phpbb_admin_path, $template, $user;
+
+		$acl_url = '&amp;mode=setting_forum_local&amp;forum_id[]=' . $forum_data['forum_id'];
+		$action = append_sid($this->u_action . "&amp;parent_id={$this->parent_id}&amp;f={$forum_data['forum_id']}&amp;action=copy_perm");
+
+		$l_acl = sprintf($user->lang['COPY_TO_ACL'], '<a href="' . append_sid("{$phpbb_admin_path}index.$phpEx", 'i=permissions' . $acl_url) . '">', '</a>');
+
+		$this->tpl_name = 'acp_forums_copy_perm';
+
+		$template->assign_vars(array(
+			'U_ACL'				=> append_sid("{$phpbb_admin_path}index.$phpEx", 'i=permissions' . $acl_url),
+			'L_ACL_LINK'		=> $l_acl,
+			'L_BACK_LINK'		=> adm_back_link($this->u_action . '&amp;parent_id=' . $this->parent_id),
+			'S_COPY_ACTION'		=> $action,
+			'S_FORUM_OPTIONS'	=> make_forum_select($forum_data['parent_id'], $forum_data['forum_id'], false, false, false),
+		));
+	}
+
 }
 
 ?>
