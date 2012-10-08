@@ -636,10 +636,17 @@ class JCache extends JObject
 	{
 		$app = JFactory::getApplication();
 		// Get url parameters set by plugins
-		$registeredurlparams = $app->registeredurlparams;
+		if (!empty($app->registeredurlparams))
+ 	 	
+   {
+ 		
+      $registeredurlparams = $app->registeredurlparams;
+	
+   }
+	
+  else
 
-		if (empty($registeredurlparams))
-		{
+     {
 			/*
 			$registeredurlparams = new stdClass;
 			$registeredurlparams->Itemid 	= 'INT';
