@@ -10,7 +10,7 @@
 // no direct access
 defined('_JEXEC') or die;
 ?>
-<span class="breadcrumbs<?php echo $params->get('moduleclass_sfx'); ?> pathway">
+<span class="breadcrumbs<?php echo $params->get('moduleclass_sfx'); ?> pathway" xmlns:v="http://rdf.data-vocabulary.org/#">
 <?php if ($params->get('showHere', 1))
 	{
 		echo '<strong>'.JText::_('MOD_BREADCRUMBS_HERE').'</strong>';
@@ -21,7 +21,7 @@ defined('_JEXEC') or die;
 	// If not the last item in the breadcrumbs add the separator
 	if ($i < $count -1) {
 		if (!empty($list[$i]->link)) {
-			echo '<a href="'.$list[$i]->link.'" class="pathway">'.$list[$i]->name.'</a>';
+			echo '<span style="vertical-align: top; display: inline; padding-top: 0px;" typeof="v:Breadcrumb"><a href="'.$list[$i]->link.'" class="pathway" rel="v:url" property="v:title">'.$list[$i]->name.'</a></span>';
 		} else {
 			echo $list[$i]->name;
 		}
