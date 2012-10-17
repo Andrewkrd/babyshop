@@ -1068,7 +1068,7 @@ span.menu-desc { display: block; font-size: 92%; font-weight: normal; }
 
 .ja-breadcrums strong { margin-right: 5px; }
 
-.ja-breadcrums img { margin: 1px 5px; }
+.ja-breadcrums img { margin: 9px 5px; }
 
 /* Extras ---*/
 .ja-links { float: right; margin-top: 2px; }

@@ -21,7 +21,7 @@ defined('_JEXEC') or die;
 	// If not the last item in the breadcrumbs add the separator
 	if ($i < $count -1) {
 		if (!empty($list[$i]->link)) {
-			echo '<span style="vertical-align: top; display: inline; padding-top: 0px;" typeof="v:Breadcrumb"><a href="'.$list[$i]->link.'" class="pathway" rel="v:url" property="v:title">'.$list[$i]->name.'</a></span>';
+			echo '<span typeof="v:Breadcrumb"><a href="'.$list[$i]->link.'" class="pathway" rel="v:url" property="v:title">'.$list[$i]->name.'</a></span>';
 		} else {
 			echo $list[$i]->name;
 		}
@@ -32,7 +32,7 @@ defined('_JEXEC') or die;
 		if($i > 0){
 			echo ' '.$separator.' ';
 		}
-		echo $list[$i]->name;
+		echo '<span class="ja-breadcrums_rdf" typeof="v:Breadcrumb">' . $list[$i]->name . '</span>';
 	}
 endfor; ?>
 </span>
