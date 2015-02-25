@@ -181,11 +181,11 @@ echo $this->loadTemplate('images');
 			<?php
 		    }
 		}
-		if (is_array($this->productDisplayShipments)) {
+		/*if (is_array($this->productDisplayShipments)) {
 		    foreach ($this->productDisplayShipments as $productDisplayShipment) {
 			echo $productDisplayShipment . '<br />';
 		    }
-		}
+		}*/
 		if (is_array($this->productDisplayPayments)) {
 		    foreach ($this->productDisplayPayments as $productDisplayPayment) {
 			echo $productDisplayPayment . '<br />';
